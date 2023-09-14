@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+  
+	<parent>
+		<groupId>org.scijava</groupId>
+		<artifactId>pom-scijava</artifactId>
+		<version>17.1.1</version>
+		<relativePath />
+	</parent> 
+ 
+ 	<artifactId>HPA_Convert_OPERA_To_LIMS-OMETIF_JNH</artifactId>
+ 	<groupId>CellProfiling</groupId>
+    <version>0.0.1-SNAPSHOT</version>
+ 
+<!-- Plugin Information -->
+    <name>HPA_Convert_OPERA_To_LIMS-OMETIF_JNH</name>
+ 	<url>https://github.com/CellProfiling/HPA_Convert_Sp8_To_OMETIF/</url>
+	<inceptionYear>2023</inceptionYear>
+	<description>An ImageJ plugin to convert Opera Phenix image output folders to OME Tif format suitable for the HPA LIMS system.</description>
+ 	<organization>
+		<name>CellProfiling</name>
+		<url>https://github.com/CellProfiling/</url>
+	</organization>
+		
+	<licenses>
+		<license>
+			<name>GNU General Public License v3+</name>
+			<url>http://www.gnu.org/licenses/gpl.html</url>
+			<distribution>repo</distribution>
+		</license>
+	</licenses>
+	
+	<developers>
+        <developer>
+            <id></id>
+            <name>Jan Niklas Hansen</name>
+            <email>jan.hansen@scilifelab.se</email>
+            <url>https://github.com/hansenjn</url>
+            <organization>CellProfiling</organization>
+            <organizationUrl>https://github.com/CellProfiling/</organizationUrl>
+            <roles>
+                <role>lead</role>
+                <role>developer</role>
+                <role>debugger</role>
+                <role>reviewer</role>
+                <role>support</role>
+                <role>maintainer</role>
+            </roles>
+            <timezone>+1</timezone>
+        </developer>        
+    </developers>
+    
+    <contributors>
+        <!--
+        NB: Need a least one element to override the parent.
+        See: https://issues.apache.org/jira/browse/MNG-5220
+        -->
+        <contributor><name>None</name></contributor>
+    </contributors>
+ 	
+ 	<mailingLists>
+		<mailingList>
+			<name>ImageJ Forum</name>
+			<archive>http://forum.imagej.net/</archive>
+		</mailingList>
+	</mailingLists>
+ 	
+ 	<scm>
+		<connection>scm:git:git://github.com/CellProfiling</connection>
+		<developerConnection>scm:git:git@github.com:CellProfiling/HPA_Convert_Sp8_To_OMETIF</developerConnection>
+		<tag>HEAD</tag>
+		<url>https://github.com/CellProfiling/HPA_Convert_Sp8_To_OMETIF</url>
+	</scm>
+ 	
+ 	<issueManagement>
+		<system>GitHub Issues</system>
+		<url>https://github.com/CellProfiling/HPA_Convert_Sp8_To_OMETIF/issues</url>
+	</issueManagement>
+ 	
+ 	<ciManagement>
+		<system>None</system>
+	</ciManagement>
+ 	
+ 	<properties>
+		<main-class>ConvertSp8ToOMETif_Main</main-class>
+		<package-name>hpaConvertOperaToLimsOMETif_jnh</package-name>
+		<license.licenseName>gpl_v3</license.licenseName>
+		<license.copyrightOwners>Jan Niklas Hansen</license.copyrightOwners>
+		<license.projectName>HPA_Convert_OPERA_To_LIMS-OMETIF</license.projectName>
+	</properties>
+ 	
+ 	<repositories>
+    	<repository>
+            <id>imagej.public</id>
+            <url>http://maven.imagej.net/content/groups/public</url>
+        </repository>
+		<repository>
+			<id>ome</id>
+		    <name>Bio-Formats Repo</name>
+		    <url>http://artifacts.openmicroscopy.org/artifactory/maven</url>
+		</repository>
+    </repositories>
+ 
+<!-- TODO: See Optional Dependencies section -->
+    <dependencies>
+        <!-- ImageJ dependencies -->
+        <dependency>
+            <groupId>net.imagej</groupId>
+            <artifactId>ij</artifactId>
+        </dependency>        
+
+		<!-- Bio-Formats dependencies -->
+		<dependency>
+			<groupId>ome</groupId>
+			<artifactId>bio-formats_plugins</artifactId>
+			<exclusions>
+				<!-- NB: Guava requires Java 7+, so we exclude it here. -->
+				<exclusion>
+					<groupId>com.google.guava</groupId>
+					<artifactId>guava</artifactId>
+				</exclusion>
+			</exclusions>
+		</dependency>
+		<dependency>
+			<groupId>ome</groupId>
+  			<artifactId>formats-gpl</artifactId>
+		</dependency>				
+    </dependencies>  
+    
+    <build>
+<!--        <directory>target</directory> -->
+<!--     	<outputDirectory>target/classes</outputDirectory> -->
+<!--     	<finalName>${artifactId}-${version}</finalName> -->
+		<plugins>
+			<!--         avoid errors in java doc creation -->			
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-javadoc-plugin</artifactId>
+				<configuration>
+					<additionalparam>-Xdoclint:none</additionalparam>
+				</configuration>
+			</plugin>
+			
+			<plugin>
+				<artifactId>maven-jar-plugin</artifactId>
+				<!-- <artifactId>maven-assembly-plugin</artifactId> -->
+				<groupId>org.apache.maven.plugins</groupId>
+				<configuration>
+					<projectName>HPA_Convert_OPERA_To_LIMS-OMETIF</projectName>
+					<organizationName>Jan Niklas Hansen</organizationName>
+					<descriptorRefs>
+            			<descriptorRef>jar-with-dependencies</descriptorRef>
+          			</descriptorRefs>
+					<archive>
+						<manifest>
+							<mainClass>${main-class}</mainClass>
+						</manifest>
+					</archive>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>
