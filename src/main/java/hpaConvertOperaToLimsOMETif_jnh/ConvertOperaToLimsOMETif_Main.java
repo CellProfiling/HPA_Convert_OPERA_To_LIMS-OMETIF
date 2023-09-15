@@ -133,6 +133,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	ProgressDialog progress;
 	boolean processingDone = false;
 	boolean continueProcessing = true;
+	boolean extendedLogging = true;
 
 	// -----------------define params for Dialog-----------------
 	int tasks = 1;
@@ -145,6 +146,12 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	
 	boolean cropImage = true;
 	int newImgLength = 2048;
+	
+	//Calibration data for the 96-well plate, data derived from the technincal drawing for Greiner Sensoplate Cat. No. 655892
+	double centerOfFirstWellXInMM = 14.38;
+	double centerOfFirstWellYInMM = 11.24;
+	double distanceBetweenNeighboredWellCentersXInMM = 9;
+	double distanceBetweenNeighboredWellCentersYInMM = 9;
 	
 	String imageType [] = new String [] {"OPERA Phenix Folder"};
 	String selectedImageType = imageType [0];
@@ -189,7 +196,13 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		gd.setInsets(0,0,0);	gd.addMessage("enriched with all available metadata. The output files are ready for classic import into the HPA LIMS.",InstructionsFont);
 
 		gd.setInsets(20,0,0);	gd.addMessage("NOTE: This plugin runs only in FIJI (not in a blank ImageJ, where OME BioFormats library is missing).", InstructionsFont);		
-					
+			
+		gd.setInsets(15,0,0);	gd.addMessage("Plate specifications:", SubHeadingFont);	
+		gd.setInsets(0, 0, 0);	gd.addNumericField("Distance from the center of well A1 to the left plate border [mm]",centerOfFirstWellXInMM,2);
+		gd.setInsets(0, 0, 0);	gd.addNumericField("Distance from the center of well A1 to the top plate border [mm]",centerOfFirstWellYInMM,2);
+		gd.setInsets(0, 0, 0);	gd.addNumericField("Horizontal distance between the centers of two neighbored wells (e.g., A1 to A2) [mm]",distanceBetweenNeighboredWellCentersXInMM,2);
+		gd.setInsets(0, 0, 0);	gd.addNumericField("Vertical distance between the centers of two neighbored wells (e.g., A1 to B1) [mm]",distanceBetweenNeighboredWellCentersYInMM,2);
+		
 		gd.setInsets(15,0,0);	gd.addMessage("Processing Settings", SubHeadingFont);		
 		gd.setInsets(0,0,0);	gd.addChoice("Image type", imageType, selectedImageType);
 		
@@ -213,6 +226,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		//show Dialog-----------------------------------------------------------------
 
 		//read and process variables--------------------------------------------------	
+		centerOfFirstWellXInMM = gd.getNextNumber();
+		centerOfFirstWellYInMM = gd.getNextNumber();
+		distanceBetweenNeighboredWellCentersXInMM = gd.getNextNumber();
+		distanceBetweenNeighboredWellCentersYInMM = gd.getNextNumber();
 		selectedImageType = gd.getNextChoice();
 		cropImage = gd.getNextBoolean();
 		newImgLength = (int) Math.round(gd.getNextNumber());
@@ -369,6 +386,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		// -----------------------------PROCESS TASKS----------------------------------
 		// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
+		int nChannels, nSlices;
+		
 		for (int task = 0; task < tasks; task++) {
 			running: while (continueProcessing) {
 				Date startDate = new Date();
@@ -418,48 +437,202 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							ProgressDialog.ERROR);
 				}
 
-				//Crop image to 2048x2048
+				//Crop image to user defined size
 				if(cropImage) {					
 					imp.setRoi((int)((double)(imp.getWidth() - newImgLength)/2.0),
 							(int)((double)(imp.getHeight() - newImgLength)/2.0),
 							newImgLength,
 							newImgLength);
-					imp.show();
+//					imp.show();
 //					new WaitForUserDialog("checkRoi").show();
 					IJ.run(imp, "Crop", "");
 					
-					imp.show();
+//					imp.show();
 //					new WaitForUserDialog("check cropped").show();
 					
-					//Write it to ome.tif
+					
+					/**
+					 * Extract information from image needed for later tif extension					 * 
+					 */
+					nChannels = imp.getNChannels();
+					nSlices = imp.getNSlices();
+					
+					
+					/**
+					 * Create filename for the output files
+					 * Example filename: Index.idx.xml
+					 * Example directory: \E:\CP\Data\20230412 Sperm OPERA test -\230412 hansen__2023-04-12T13_47_17-Measurement 1\Images 
+					 * Example series name: Series_90: Well 10, Field 9: 2160 x 2160; 25 planes
+					 */
+					
 					String orDirName = dir [task].substring(0,dir [task].lastIndexOf(System.getProperty("file.separator")));
 					orDirName = orDirName.substring(0,orDirName.lastIndexOf(System.getProperty("file.separator")));
 					orDirName = orDirName.substring(orDirName.lastIndexOf(System.getProperty("file.separator"))+1);
 
+					String outFilename = orDirName + "_" + (series[task]+1);
+					
 					progress.notifyMessage("Retrieved original dir name: " + orDirName, ProgressDialog.LOG); // TODO
 					
-//					outFilename = orDirName + "";				
+					/**
+					 * Create a temporary file repository and write the files into an OME-TIF format, output images will be called <outFilename>_Z2_C4.ome
+					 */
+					String tempDir = outPath + System.getProperty("file.separator") + "temp_" + task + "" + System.getProperty("file.separator");
+					new File(tempDir).mkdirs();
+					IJ.run(imp, "OME-TIFF...", "save=[" + tempDir + outFilename + ".ome.tif] write_each_z_section write_each_channel use export compression=Uncompressed");
 					
-					IJ.run(imp, "OME-TIFF...", "save=[" + outPath + System.getProperty("file.separator") + "testing.ome.tif] write_each_z_section write_each_channel use export compression=Uncompressed");
-					
-					
-					//reopen each written file and resave it
-					
-					
-//					String xmlString;
-//					//xmlString = imp.getInfoProperty();
-//					xmlString = imp.getFileInfo().description;
-//					if(logDetectedOriginalMetadata) {
-//						progress.notifyMessage("desc: " + xmlString, ProgressDialog.LOG);
-//					}
-//					xmlString = imp.getFileInfo().toString();
-//					if(logDetectedOriginalMetadata) {
-//						progress.notifyMessage("str: " + xmlString, ProgressDialog.LOG);
-//					}
-//					xmlString = imp.getFileInfo().info;
-//					if(logDetectedOriginalMetadata) {
-//						progress.notifyMessage("info: " + xmlString, ProgressDialog.LOG);
-//					}
+					/*
+					 * Reopen each written file and resave it 
+					*/
+					{
+
+						/**
+						 * Import the XML file and generate document to read from it
+						 */
+						String metadataFilePath = dir [task] + System.getProperty("file.separator") + name [task];
+						File metaDataFile = new File(metadataFilePath);				
+						Document metaDoc = null;
+						
+						if(extendedLogging)	progress.notifyMessage("Series name: " + seriesName [task] + "", ProgressDialog.LOG);
+						if(extendedLogging)	progress.notifyMessage("Metadata file path: " + metadataFilePath + "", ProgressDialog.LOG);
+						
+						try {
+							DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+							DocumentBuilder db = dbf.newDocumentBuilder();
+							metaDoc = db.parse(metaDataFile);
+							metaDoc.getDocumentElement().normalize();
+						} catch (SAXException | IOException | ParserConfigurationException e) {
+							String out = "";
+							for (int err = 0; err < e.getStackTrace().length; err++) {
+								out += " \n " + e.getStackTrace()[err].toString();
+							}
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process metadata file " + metadataFilePath 
+									+ "\nError message: " + e.getMessage()
+									+ "\nError localized message: " + e.getLocalizedMessage()
+									+ "\nError cause: " + e.getCause() 
+									+ "\nDetailed message:"
+									+ "\n" + out,
+									ProgressDialog.ERROR);
+							return;
+						}
+						
+						/**
+						 * Shuffle through the different images to retrieve and resave them with extended comments
+						 * Example file name: <outFilename>_Z2_C4.ome.tif
+						 */
+						for(int channel = 0; channel < nChannels; channel++) {
+							for(int slices = 0; slices < nSlices; slices++) {
+								/**
+								 * Open the tif file and extract the tif comment (= OME XML String)
+								 * */
+								String omeTifFileName = outFilename + "_Z"+(slices+1)+"_C"+(channel+1)+".ome.tif";
+								String comment = new TiffParser(omeTifFileName).getComment();
+								progress.updateBarText("Reading " + omeTifFileName + " done!");
+								// display comment, and prompt for changes
+								if(logWholeOMEXMLComments) {
+									progress.notifyMessage("Original comment:", ProgressDialog.LOG);
+									progress.notifyMessage(comment, ProgressDialog.LOG);
+									
+								}
+								
+								/**
+								 * Generate a MetadatStore out of the tif comment (= OME XML String) to explore the xml-styled content
+								 * */
+								ServiceFactory factory = new ServiceFactory();
+								OMEXMLService service = factory.getInstance(OMEXMLService.class);
+								OMEXMLMetadata meta = service.createOMEXMLMetadata(comment);
+								
+								
+							}
+						}
+						
+						/**
+						 * Get basic nodes to find information in metaDoc
+						 */
+						Node imageNode = metaDoc.getElementsByTagName("Image").item(0);
+						String imageID = imageNode.getAttributes().getNamedItem("ID").getNodeValue();
+						if(extendedLogging)	progress.notifyMessage("Fetched image node - image ID:" + imageID, ProgressDialog.LOG);
+						
+						Node plateNode = metaDoc.getElementsByTagName("Plate").item(0);
+						if(extendedLogging)	progress.notifyMessage("Fetched plate node. ID:" + plateNode.getAttributes().getNamedItem("ID").getNodeValue() 
+								+ "Columns: " + plateNode.getAttributes().getNamedItem("Columns").getNodeValue() 
+								+ ", External identifier: " + plateNode.getAttributes().getNamedItem("ExternalIdentifier").getNodeValue() , ProgressDialog.LOG);
+						
+						/**
+						 * Find the well node where the ImageRef is in
+						 */
+						NodeList wellSamples = metaDoc.getElementsByTagName("WellSample");
+						Node wellNode = null;
+						boolean foundWellInfo = false;
+						ScanningWellInfo: for(int w = 0; w < wellSamples.getLength(); w++) {
+							if(wellSamples.item(w).hasChildNodes()) {
+								for(int imgs = 0; imgs < wellSamples.item(w).getChildNodes().getLength(); imgs++) {
+									if(wellSamples.item(w).getChildNodes().item(imgs).getAttributes().getNamedItem("ID").getNodeValue().equals(imageID)) {
+										foundWellInfo = true;
+										wellNode = wellSamples.item(w).getParentNode();
+										if(extendedLogging)	progress.notifyMessage("Found image with reference:" + imageID 
+												+ " in well node with ID " + wellNode.getAttributes().getNamedItem("ID").getNodeValue(), ProgressDialog.LOG);
+										break ScanningWellInfo;										
+									}															
+								}
+							}
+						}
+						
+						if(!foundWellInfo) {
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process "
+									+ series[task] + " - Failed to find well information in OME XML String of converted tif file.",
+									ProgressDialog.ERROR);
+							break running;
+						}
+						
+						/**
+						 * Extract well column and row on plate
+						 */
+						int wellColumn = -1, wellRow = -1; 
+						try {
+							wellColumn = Integer.parseInt(wellNode.getAttributes().getNamedItem("Column").getNodeValue());
+							wellRow = Integer.parseInt(wellNode.getAttributes().getNamedItem("Row").getNodeValue());
+						}catch(Exception e) {
+							String out = "";
+							for (int err = 0; err < e.getStackTrace().length; err++) {
+								out += " \n " + e.getStackTrace()[err].toString();
+							}
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", file" + metadataFilePath 
+									+ ":\nFailed to fetch Column or Row information from the well node in OME XML String of converted tif file." 
+									+ "\nError message: " + e.getMessage()
+									+ "\nError localized message: " + e.getLocalizedMessage()
+									+ "\nError cause: " + e.getCause() 
+									+ "\nDetailed message:"
+									+ "\n" + out,
+									ProgressDialog.ERROR);
+							return;							
+						}
+						if(extendedLogging)	progress.notifyMessage("Fetched well coordinates: Column " + wellColumn + ", Row " + wellRow, ProgressDialog.LOG);
+												
+						/**
+						 * Determine X and Y position of well center
+						 */
+						double wellCenterX = centerOfFirstWellXInMM + (double) wellColumn * distanceBetweenNeighboredWellCentersXInMM;
+						double wellCenterY = centerOfFirstWellYInMM + (double) wellRow * distanceBetweenNeighboredWellCentersYInMM;
+						
+						if(extendedLogging)	progress.notifyMessage("Well coordinates are " + wellCenterX + " | " + wellCenterY , ProgressDialog.LOG);
+						
+						
+						/**
+						 * Correct X and Y positions TODO go on here
+						 */
+						
+						
+						/**
+						 * Verify that x and y position match TODO
+						 * */
+						
+						
+						/**
+						 * Add original metadata TODO
+						 * */
+						
+						
+					}
 					
 					try {
 						imp.changes = false;
@@ -489,6 +662,85 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		ImportProcess process = new ImportProcess(options);
 		if (!process.execute()) return "NaN";
 		return process.getSeriesLabel(series);
+	}
+	
+	/**
+	 * Read a File and return the whole content as one concatenated string.
+	 * Useful to read xml files.
+	 * @param file:
+	 * @return String containing the whole file content.
+	 * @throws FileNotFoundException
+	 */
+	private static String readFileAsOneString(File file) throws FileNotFoundException {
+		FileReader fr = new FileReader(file);
+		BufferedReader br = new BufferedReader(fr);
+		String line = "", collectedString = "";
+		copyPaste: while (true) {
+			try {
+				line = br.readLine();
+				if (line.equals(null))
+					break copyPaste;
+				collectedString += line;
+			} catch (Exception e) {
+				break copyPaste;
+			}
+		}
+		try {
+			br.close();
+			fr.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		return collectedString;
+	}
+	
+	/**
+	 * TODO Add description
+	 * @param tempNode
+	 * @return name of the node with a number added
+	 */
+	private String getNumberedNodeName(Node tempNode) {
+		int sibblings = 0;
+		Node sibbling;
+		for(int cn = 0; cn < tempNode.getParentNode().getChildNodes().getLength(); cn++) {
+			if(tempNode.getParentNode().getChildNodes().item(cn).getNodeName().equals(tempNode.getNodeName())) {
+				sibblings ++;
+			}
+		}
+		
+		int id = 0;
+		if(sibblings > 1) {
+			sibbling = tempNode;
+			id = 0;
+			for(int cn = 0; cn < sibblings; cn++) {
+				sibbling = sibbling.getNextSibling();
+				if(sibbling == null) {
+					break;
+				}
+				if(sibbling.getNodeName().equals(tempNode.getNodeName())) {
+					id++;
+				}
+			}
+			id = sibblings - id - 1;
+			return tempNode.getNodeName() + " " + id;
+		}else {
+			return tempNode.getNodeName();					
+		}
+	}
+	
+	/**
+	 * Find the first node with a specific name in a NodeList
+	 * @param A NodeList in which a Node shall be found
+	 * @param The name of the Node that shall be found as a String
+	 * @return First node in the list called 'nodes' that has the given name
+	 */
+	private Node getFirstNodeWithName(NodeList nodes, String name) {
+		for(int n = 0; n < nodes.getLength(); n++) {
+			if(nodes.item(n).getNodeName().equals(name)) {
+				return nodes.item(n);
+			}
+		}
+		return null;
 	}
 	
 }// end main class
