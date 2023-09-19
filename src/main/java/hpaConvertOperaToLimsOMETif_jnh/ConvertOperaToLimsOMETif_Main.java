@@ -64,7 +64,6 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
-import hpaConvertSp8ToOMETif_jnh.ProgressDialog;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.gui.GenericDialog;
