@@ -64,6 +64,7 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
+import hpaConvertSp8ToOMETif_jnh.ProgressDialog;
 import ij.IJ;
 import ij.ImagePlus;
 import ij.gui.GenericDialog;
@@ -480,156 +481,396 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					new File(tempDir).mkdirs();
 					IJ.run(imp, "OME-TIFF...", "save=[" + tempDir + outFilename + ".ome.tif] write_each_z_section write_each_channel use export compression=Uncompressed");
 					
+					/**
+					 * Import the raw metadata XML file and generate document to read from it
+					 * 
+					 * Useful information about the XML file that contains the metadata
+					 * The OPERA setup assigns a specific ID to each image. This image ID looks e.g. as follows: "0501K1F1P1R1"
+					 * An ID is created for each individual image (so also individual plane, channel, position.
+					 * The ID encodes for the specific field of view, plane, channel, well, ... as follows (refers to the example above):
+					 * 	- '0501' refers to the <Well> id and is composed of the Row (05 in this example) and Column (01 in this example)
+					 * 	- 'K1': Unknown for now what it refers to, maybe the time point? Or plate ID?
+					 * 	- 'F1' refers to the field of view so the position in the well
+					 * 	- 'P1' refers to the focal plane so the z position
+					 * 	- 'R1' refers to the channel position
+					 * Under the main Node <Wells> all wells are listed as a <Well> node and image ids for the images in that well are noted
+					 * Under the main node <Images> each image is listed as an <Image> node, which has as childs all metadata for that image, including channel information, id, etc.
+					 */
+					String metadataFilePath = dir [task] + System.getProperty("file.separator") + name [task];
+					File metaDataFile = new File(metadataFilePath);				
+					Document metaDoc = null;
+					
+					if(extendedLogging)	progress.notifyMessage("Series name: " + seriesName [task] + "", ProgressDialog.LOG);
+					if(extendedLogging)	progress.notifyMessage("Metadata file path: " + metadataFilePath + "", ProgressDialog.LOG);
+					
+					try {
+						DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+						DocumentBuilder db = dbf.newDocumentBuilder();
+						metaDoc = db.parse(metaDataFile);
+						metaDoc.getDocumentElement().normalize();
+					} catch (SAXException | IOException | ParserConfigurationException e) {
+						String out = "";
+						for (int err = 0; err < e.getStackTrace().length; err++) {
+							out += " \n " + e.getStackTrace()[err].toString();
+						}
+						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process metadata file " + metadataFilePath 
+								+ "\nError message: " + e.getMessage()
+								+ "\nError localized message: " + e.getLocalizedMessage()
+								+ "\nError cause: " + e.getCause() 
+								+ "\nDetailed message:"
+								+ "\n" + out,
+								ProgressDialog.ERROR);
+						return;
+					}				
+					
+					/**
+					 * Get basic nodes to find information in metaDoc
+					 */
+					Node imagesNode = metaDoc.getElementsByTagName("Images").item(0);
+					Node wellsNode = metaDoc.getElementsByTagName("Wells").item(0);
+					Node platesNode = metaDoc.getElementsByTagName("Plates").item(0);
+					
+					if(extendedLogging) {
+						progress.notifyMessage("Fetched <Images> node and found " + imagesNode.getChildNodes().getLength() + " images.", ProgressDialog.LOG);
+						progress.notifyMessage("Fetched <Wells> node and found " + wellsNode.getChildNodes().getLength() + " wells.", ProgressDialog.LOG);
+						progress.notifyMessage("Fetched <Plates> node and found " + platesNode.getChildNodes().getLength() + " plates.", ProgressDialog.LOG);
+					}
+
+					int plateIndexOriginalMetadata = 0;
+					Node plateNode = platesNode.getChildNodes().item(plateIndexOriginalMetadata);
+					String plateIDOriginalMetadata = getFirstNodeWithName(plateNode.getChildNodes(), "PlateID").getNodeValue();
+					if(platesNode.getChildNodes().getLength() > 1){
+						progress.notifyMessage("WARNING! " + platesNode.getChildNodes().getLength() + " different plates were found in the metadata xml file. "
+								+ "So far this software can only handle recording from one plate. Metadata from plate " + plateIDOriginalMetadata + " will be used. "
+								+ "Wrong metadata may be copied for files from other plates. "
+								+ "Contact the developer to implement converting images from multiple plates! ", ProgressDialog.NOTIFICATION);
+					}
+										
 					/*
 					 * Reopen each written file and resave it 
 					*/
 					{
-
-						/**
-						 * Import the XML file and generate document to read from it
-						 */
-						String metadataFilePath = dir [task] + System.getProperty("file.separator") + name [task];
-						File metaDataFile = new File(metadataFilePath);				
-						Document metaDoc = null;
-						
-						if(extendedLogging)	progress.notifyMessage("Series name: " + seriesName [task] + "", ProgressDialog.LOG);
-						if(extendedLogging)	progress.notifyMessage("Metadata file path: " + metadataFilePath + "", ProgressDialog.LOG);
-						
-						try {
-							DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-							DocumentBuilder db = dbf.newDocumentBuilder();
-							metaDoc = db.parse(metaDataFile);
-							metaDoc.getDocumentElement().normalize();
-						} catch (SAXException | IOException | ParserConfigurationException e) {
-							String out = "";
-							for (int err = 0; err < e.getStackTrace().length; err++) {
-								out += " \n " + e.getStackTrace()[err].toString();
-							}
-							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process metadata file " + metadataFilePath 
-									+ "\nError message: " + e.getMessage()
-									+ "\nError localized message: " + e.getLocalizedMessage()
-									+ "\nError cause: " + e.getCause() 
-									+ "\nDetailed message:"
-									+ "\n" + out,
-									ProgressDialog.ERROR);
-							return;
-						}
-						
 						/**
 						 * Shuffle through the different images to retrieve and resave them with extended comments
 						 * Example file name: <outFilename>_Z2_C4.ome.tif
 						 */
+						String omeTifFileName, comment;
+						ServiceFactory factory;
+						OMEXMLService service;
+						OMEXMLMetadata meta;
+						
 						for(int channel = 0; channel < nChannels; channel++) {
 							for(int slices = 0; slices < nSlices; slices++) {
-								/**
-								 * Open the tif file and extract the tif comment (= OME XML String)
-								 * */
-								String omeTifFileName = outFilename + "_Z"+(slices+1)+"_C"+(channel+1)+".ome.tif";
-								String comment = new TiffParser(omeTifFileName).getComment();
-								progress.updateBarText("Reading " + omeTifFileName + " done!");
-								// display comment, and prompt for changes
-								if(logWholeOMEXMLComments) {
-									progress.notifyMessage("Original comment:", ProgressDialog.LOG);
-									progress.notifyMessage(comment, ProgressDialog.LOG);
+								omeTifFileName = outFilename + "_Z"+(slices+1)+"_C"+(channel+1)+".ome.tif";
+								try {
+									/**
+									 * Open the tif file and extract the tif comment (= OME XML String)
+									 * */
+									comment = new TiffParser(omeTifFileName).getComment();									
+									progress.updateBarText("Reading " + omeTifFileName + " done!");
+									// display comment, and prompt for changes
+									if(logWholeOMEXMLComments) {
+										progress.notifyMessage("Original comment:", ProgressDialog.LOG);
+										progress.notifyMessage(comment, ProgressDialog.LOG);
+									}
 									
-								}
-								
-								/**
-								 * Generate a MetadatStore out of the tif comment (= OME XML String) to explore the xml-styled content
-								 * */
-								ServiceFactory factory = new ServiceFactory();
-								OMEXMLService service = factory.getInstance(OMEXMLService.class);
-								OMEXMLMetadata meta = service.createOMEXMLMetadata(comment);
-								
-								
+									Document metaDocOME;
+									try {
+										DocumentBuilderFactory dbf2 = DocumentBuilderFactory.newInstance();
+										DocumentBuilder db2 = dbf2.newDocumentBuilder();
+										metaDocOME = db2.parse(metaDataFile);
+										metaDocOME.getDocumentElement().normalize();
+									} catch (SAXException | IOException | ParserConfigurationException e) {
+										String out = "";
+										for (int err = 0; err < e.getStackTrace().length; err++) {
+											out += " \n " + e.getStackTrace()[err].toString();
+										}
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process metadata file " + metadataFilePath 
+												+ "\nError message: " + e.getMessage()
+												+ "\nError localized message: " + e.getLocalizedMessage()
+												+ "\nError cause: " + e.getCause() 
+												+ "\nDetailed message:"
+												+ "\n" + out,
+												ProgressDialog.ERROR);
+										return;
+									}
+									
+									/**
+									 * Generate a MetadatStore out of the tif comment (= OME XML String) to explore the xml-styled content
+									 * */
+									factory = new ServiceFactory();
+									service = factory.getInstance(OMEXMLService.class);
+									meta = service.createOMEXMLMetadata(comment);
+									
+									/**
+									 * Check whether there is more than one image and then find out image ID
+									 */
+									if(meta.getImageCount() > 1) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - OME XML Annotation features more than one image. Unclear which image is meant!",
+												ProgressDialog.ERROR);
+										continue;
+									}
+									int imageIndex = 0;
+									String imageID = meta.getImageID(imageIndex);
+									
+									/**
+									 * Find the plate, well, and wellSample that the image is from.
+									 */
+									int plateIndex, wellIndex, wellSampleIndex;
+									plateIndex = -1;
+									wellIndex = -1;
+									wellSampleIndex = -1;
+									String plateID, wellID;
+									plateID = "NA";
+									wellID = "NA";
+									
+									for(int p = 0; p < meta.getPlateCount(); p++) {
+										plateID = meta.getPlateID(p);
+										for(int w = 0; w < meta.getWellCount(p); w++) {
+											wellID = meta.getWellID(p, w);
+											for(int sam = 0; sam < meta.getWellSampleCount(p, w); sam ++) {
+												if(meta.getWellSampleImageRef(p, w, sam).equals(imageID)){
+													plateIndex = p;
+													wellIndex = w;
+													wellSampleIndex = sam;													
+													break;
+												}
+											}
+										}
+									}
+									
+									if(plateIndex == -1 || wellIndex == -1 || wellSampleIndex == -1) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Could not find image noted in plate and well OME annotations!",
+												ProgressDialog.ERROR);
+										continue;										
+									}
+									
+									/**
+									 * Determine column and row coordinate on the plate
+									 */
+									int wellColumn, wellRow;
+									wellColumn = -1;
+									wellRow = -1;
+									try {
+										wellColumn = meta.getWellColumn(plateIndex, wellIndex).getNumberValue().intValue();
+										wellRow = meta.getWellRow(plateIndex, wellIndex).getNumberValue().intValue();										
+									}catch(Exception e) {
+										String out = "";
+										for (int err = 0; err < e.getStackTrace().length; err++) {
+											out += " \n " + e.getStackTrace()[err].toString();
+										}
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", file" + metadataFilePath 
+												+ ":\nFailed to fetch Column or Row information from the Well in OME metadata object." 
+												+ "\nError message: " + e.getMessage()
+												+ "\nError localized message: " + e.getLocalizedMessage()
+												+ "\nError cause: " + e.getCause() 
+												+ "\nDetailed message:"
+												+ "\n" + out,
+												ProgressDialog.ERROR);
+										continue;							
+									}
+									
+									if(wellColumn == -1 || wellRow  == -1) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Could not fetch well and column coordinate from OME annotations!",
+												ProgressDialog.ERROR);
+										continue;	
+									}
+									
+									if(extendedLogging)	progress.notifyMessage("Fetched well coordinates: Column " + wellColumn + ", Row " + wellRow, ProgressDialog.LOG);
+
+									/**
+									 * Find image information in TiffData
+									 */
+									int imageC = -1, imageT = -1, imageZ = -1;
+									for(int td = 0; td < metaDocOME.getElementsByTagName("TiffData").getLength(); td++) {
+										if(meta.getUUID() == metaDocOME.getElementsByTagName("TiffData").item(td).getChildNodes().item(0).getNodeValue()) {
+											imageC = Integer.parseInt(metaDocOME.getElementsByTagName("TiffData").item(td).getAttributes().getNamedItem("FirstC").getNodeValue());
+											imageT = Integer.parseInt(metaDocOME.getElementsByTagName("TiffData").item(td).getAttributes().getNamedItem("FirstT").getNodeValue());
+											imageZ = Integer.parseInt(metaDocOME.getElementsByTagName("TiffData").item(td).getAttributes().getNamedItem("FirstZ").getNodeValue());
+											break;
+										}										
+									}
+
+									if(imageC == -1 | imageT == -1 | imageZ == -1) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Could not find tiff data node in OME XML Document!",
+												ProgressDialog.ERROR);
+										continue;
+									}
+									
+									if(extendedLogging)	progress.notifyMessage("Fetched TiffData information for the current image: UUID " + meta.getUUID() 
+										+ ", C " + imageC
+										+ ", T " + imageT
+										+ ", Z " + imageZ, 
+										ProgressDialog.LOG);
+									
+									/**
+									 * Find the relating image node in the original metdata xml from the OPERA folder system
+									 * To do this first create the label that is used in opera based on the information obtained.
+									 * The OPERA setup assigns a specific ID to each image. This image ID looks e.g. as follows: "0501K1F1P1R1"
+									 * An ID is created for each individual image (so also individual plane, channel, position.
+									 * The ID encodes for the specific field of view, plane, channel, well, ... as follows (refers to the example above):
+									 * 	- '0501' refers to the <Well> id and is composed of the Row (05 in this example) and Column (01 in this example)
+									 * 	- 'K1': Unknown for now what it refers to, maybe the time point? Or plate ID?
+									 * 	- 'F1' refers to the field of view so the position in the well
+									 * 	- 'P1' refers to the focal plane so the z position
+									 * 	- 'R1' refers to the channel position
+									 */
+									String ImageLabelOPERA = "";
+									if(String.valueOf(wellRow).length() == 1){
+										ImageLabelOPERA += "0";										
+									}
+									ImageLabelOPERA += String.valueOf(wellRow);
+									if(String.valueOf(wellColumn).length() == 1){
+										ImageLabelOPERA += "0";										
+									}
+									ImageLabelOPERA += String.valueOf(wellColumn);
+									ImageLabelOPERA += "K1";
+									ImageLabelOPERA += "F" + String.valueOf(wellSampleIndex+1);
+									ImageLabelOPERA += "P" + String.valueOf(imageZ+1);
+									ImageLabelOPERA += "R" + String.valueOf(imageC+1);
+									
+									if(extendedLogging)	progress.notifyMessage("Reconstructed reference in OPERA metadata " + ImageLabelOPERA, ProgressDialog.LOG);
+																		
+									Node imageNode = getImageNodeWithID_OPERAMETADATA(imagesNode.getChildNodes(), ImageLabelOPERA);
+									if(imageNode.equals(null)) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Could not find image node with id " + ImageLabelOPERA + "in OPERA Metadata XML!",
+												ProgressDialog.ERROR);
+										continue;
+									}									
+									if(extendedLogging)	progress.notifyMessage("Found image node with id " + ImageLabelOPERA + " in OPERA metadata!", ProgressDialog.LOG);
+									
+									
+									/**
+									 * Determine X and Y position of well center
+									 */
+									double wellCenterXInMM = centerOfFirstWellXInMM + (double) wellColumn * distanceBetweenNeighboredWellCentersXInMM;
+									double wellCenterYInMM = centerOfFirstWellYInMM + (double) wellRow * distanceBetweenNeighboredWellCentersYInMM;
+									
+									if(extendedLogging)	progress.notifyMessage("Well coordinates are " + wellCenterXInMM + " | " + wellCenterYInMM , ProgressDialog.LOG);
+																	
+									/**
+									 * Correct X, Y, Z positions in each stored plane
+									 */
+									double newXInM, newYInM, newZInM;
+									for(int p = 0; p < meta.getPlaneCount(imageIndex); p++) {
+										/**
+										 * Calculate and modify X position
+										 * */
+										newXInM = meta.getPlanePositionX(imageIndex, p).value().doubleValue();
+										newXInM = wellCenterXInMM / 1000.0 + newXInM;
+
+										if(extendedLogging)	progress.notifyMessage("Plane " + p + "(Original X coordinate: " + meta.getPlanePositionX(imageIndex, p).value().doubleValue() 
+												+ " " + meta.getPlanePositionX(imageIndex, p).unit().getSymbol() 
+												+ ") will get C coordinate " + newXInM + " m", ProgressDialog.LOG);
+
+										meta.setPlanePositionX(FormatTools.createLength(newXInM,UNITS.METER), imageIndex, p);
+										
+										/**
+										 * Calculate and modify Y position
+										 * */
+										newYInM = meta.getPlanePositionY(imageIndex, p).value().doubleValue();
+										newYInM = wellCenterYInMM / 1000.0 + newYInM;
+
+										if(extendedLogging)	progress.notifyMessage("Plane " + p + "(Original Y coordinate: " + meta.getPlanePositionY(imageIndex, p).value().doubleValue() 
+												+ " " + meta.getPlanePositionY(imageIndex, p).unit().getSymbol() 
+												+ ") will get Y coordinate " + newYInM + " m", ProgressDialog.LOG);
+
+										meta.setPlanePositionY(FormatTools.createLength(newYInM,UNITS.METER), imageIndex, p);
+										
+										/**
+										 * Correct unit of Z position
+										 * In the originally generated file the Z position is given in micron, although as unit only "reference frame" is specified!
+										 * */
+										newZInM = meta.getPlanePositionZ(imageIndex, p).value().doubleValue() / 1000 / 1000;
+
+										if(extendedLogging)	progress.notifyMessage("Plane " + p + "(Original Z coordinate: " + meta.getPlanePositionZ(imageIndex, p).value().doubleValue() 
+												+ " " + meta.getPlanePositionZ(imageIndex, p).unit().getSymbol() 
+												+ ") will get Z coordinate " + newZInM + " m", ProgressDialog.LOG);
+
+										meta.setPlanePositionY(FormatTools.createLength(newYInM,UNITS.METER), imageIndex, p);
+										
+										/**
+										 * For security purposes let us try to cross check that with the original metadata file
+										 * */
+										{
+											Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "AbsPositionZ");
+											Unit<Length> tempUnit = null;										
+											switch(tempNode.getAttributes().getNamedItem("Unit").getNodeValue()) {
+											case "m":
+												tempUnit = UNITS.METER;
+												break;
+											case "mm":
+												tempUnit = UNITS.MILLIMETER;
+												break;
+											case "micron":
+												tempUnit = UNITS.MICROMETER;
+												break;
+											case "um":
+												tempUnit = UNITS.MICROMETER;
+												break;
+											case "nm":
+												tempUnit = UNITS.NANOMETER;
+												break;										
+											}											
+											if(Double.parseDouble(tempNode.getNodeValue()) != meta.getPlanePositionZ(imageIndex, p).value(tempUnit).doubleValue()){
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Z location in tiff metadata did not match metadata of image with reference " 
+														+ ImageLabelOPERA + "in OPERA Metadata XML!",
+														ProgressDialog.ERROR);
+												continue;
+											}else if(extendedLogging) {
+												progress.notifyMessage("Plane " + p + "(Original Z coordinate: " + meta.getPlanePositionZ(imageIndex, p).value().doubleValue()
+														+ " " + meta.getPlanePositionZ(imageIndex, p).unit().getSymbol() 
+														+ ") will get Z coordinate " + newZInM + " m", ProgressDialog.LOG);
+											}
+													
+										}
+									}
+									
+									/**
+									 * Add original metadata TODO
+									 * */
+									
+									
+								} catch (IOException e) {
+									String out = "";
+									for (int err = 0; err < e.getStackTrace().length; err++) {
+										out += " \n " + e.getStackTrace()[err].toString();
+									}
+									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Error when trying to open Tif-XML-Comment in file " + omeTifFileName 
+											+ "\nError message: " + e.getMessage()
+											+ "\nError localized message: " + e.getLocalizedMessage()
+											+ "\nError cause: " + e.getCause() 
+											+ "\nDetailed message:"
+											+ "\n" + out,
+											ProgressDialog.ERROR);
+								} catch (DependencyException e) {
+									String out = "";
+									for (int err = 0; err < e.getStackTrace().length; err++) {
+										out += " \n " + e.getStackTrace()[err].toString();
+									}
+									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Error when trying to generate OMEXMLService for file " + omeTifFileName 
+											+ "\nError message: " + e.getMessage()
+											+ "\nError localized message: " + e.getLocalizedMessage()
+											+ "\nError cause: " + e.getCause() 
+											+ "\nDetailed message:"
+											+ "\n" + out,
+											ProgressDialog.ERROR);
+								} catch (ServiceException e) {
+									String out = "";
+									for (int err = 0; err < e.getStackTrace().length; err++) {
+										out += " \n " + e.getStackTrace()[err].toString();
+									}
+									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Error when creating OME XML Metadata object for file " + omeTifFileName 
+											+ "\nError message: " + e.getMessage()
+											+ "\nError localized message: " + e.getLocalizedMessage()
+											+ "\nError cause: " + e.getCause() 
+											+ "\nDetailed message:"
+											+ "\n" + out,
+											ProgressDialog.ERROR);
+								}								
 							}
 						}
 						
-						/**
-						 * Get basic nodes to find information in metaDoc
-						 */
-						Node imageNode = metaDoc.getElementsByTagName("Image").item(0);
-						String imageID = imageNode.getAttributes().getNamedItem("ID").getNodeValue();
-						if(extendedLogging)	progress.notifyMessage("Fetched image node - image ID:" + imageID, ProgressDialog.LOG);
-						
-						Node plateNode = metaDoc.getElementsByTagName("Plate").item(0);
-						if(extendedLogging)	progress.notifyMessage("Fetched plate node. ID:" + plateNode.getAttributes().getNamedItem("ID").getNodeValue() 
-								+ "Columns: " + plateNode.getAttributes().getNamedItem("Columns").getNodeValue() 
-								+ ", External identifier: " + plateNode.getAttributes().getNamedItem("ExternalIdentifier").getNodeValue() , ProgressDialog.LOG);
-						
-						/**
-						 * Find the well node where the ImageRef is in
-						 */
-						NodeList wellSamples = metaDoc.getElementsByTagName("WellSample");
-						Node wellNode = null;
-						boolean foundWellInfo = false;
-						ScanningWellInfo: for(int w = 0; w < wellSamples.getLength(); w++) {
-							if(wellSamples.item(w).hasChildNodes()) {
-								for(int imgs = 0; imgs < wellSamples.item(w).getChildNodes().getLength(); imgs++) {
-									if(wellSamples.item(w).getChildNodes().item(imgs).getAttributes().getNamedItem("ID").getNodeValue().equals(imageID)) {
-										foundWellInfo = true;
-										wellNode = wellSamples.item(w).getParentNode();
-										if(extendedLogging)	progress.notifyMessage("Found image with reference:" + imageID 
-												+ " in well node with ID " + wellNode.getAttributes().getNamedItem("ID").getNodeValue(), ProgressDialog.LOG);
-										break ScanningWellInfo;										
-									}															
-								}
-							}
-						}
-						
-						if(!foundWellInfo) {
-							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process "
-									+ series[task] + " - Failed to find well information in OME XML String of converted tif file.",
-									ProgressDialog.ERROR);
-							break running;
-						}
-						
-						/**
-						 * Extract well column and row on plate
-						 */
-						int wellColumn = -1, wellRow = -1; 
-						try {
-							wellColumn = Integer.parseInt(wellNode.getAttributes().getNamedItem("Column").getNodeValue());
-							wellRow = Integer.parseInt(wellNode.getAttributes().getNamedItem("Row").getNodeValue());
-						}catch(Exception e) {
-							String out = "";
-							for (int err = 0; err < e.getStackTrace().length; err++) {
-								out += " \n " + e.getStackTrace()[err].toString();
-							}
-							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", file" + metadataFilePath 
-									+ ":\nFailed to fetch Column or Row information from the well node in OME XML String of converted tif file." 
-									+ "\nError message: " + e.getMessage()
-									+ "\nError localized message: " + e.getLocalizedMessage()
-									+ "\nError cause: " + e.getCause() 
-									+ "\nDetailed message:"
-									+ "\n" + out,
-									ProgressDialog.ERROR);
-							return;							
-						}
-						if(extendedLogging)	progress.notifyMessage("Fetched well coordinates: Column " + wellColumn + ", Row " + wellRow, ProgressDialog.LOG);
-												
-						/**
-						 * Determine X and Y position of well center
-						 */
-						double wellCenterX = centerOfFirstWellXInMM + (double) wellColumn * distanceBetweenNeighboredWellCentersXInMM;
-						double wellCenterY = centerOfFirstWellYInMM + (double) wellRow * distanceBetweenNeighboredWellCentersYInMM;
-						
-						if(extendedLogging)	progress.notifyMessage("Well coordinates are " + wellCenterX + " | " + wellCenterY , ProgressDialog.LOG);
-						
-						
-						/**
-						 * Correct X and Y positions TODO go on here
-						 */
-						
-						
-						/**
-						 * Verify that x and y position match TODO
-						 * */
-						
-						
-						/**
-						 * Add original metadata TODO
-						 * */
 						
 						
 					}
@@ -738,6 +979,22 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		for(int n = 0; n < nodes.getLength(); n++) {
 			if(nodes.item(n).getNodeName().equals(name)) {
 				return nodes.item(n);
+			}
+		}
+		return null;
+	}
+	
+
+	/**
+	 * Find the first node with a specific name in a NodeList
+	 * @param imageNodes: The list of image nodes in an OPERA XML Metadata file
+	 * @param id: The id for the image in that imageNodes list that shall be returned
+	 * @return First node in the list that has a subnode of type <id> with a value of @param id
+	 */
+	private Node getImageNodeWithID_OPERAMETADATA(NodeList imageNodes, String id) {
+		for(int n = 0; n < imageNodes.getLength(); n++) {
+			if(getFirstNodeWithName(imageNodes.item(n).getChildNodes(),"id").getNodeValue().equals(id)){
+				return imageNodes.item(n);
 			}
 		}
 		return null;
