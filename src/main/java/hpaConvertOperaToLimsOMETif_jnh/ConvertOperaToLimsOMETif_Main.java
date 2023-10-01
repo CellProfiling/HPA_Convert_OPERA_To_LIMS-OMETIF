@@ -94,12 +94,15 @@ import loci.plugins.in.ImporterOptions;
 import loci.formats.tiff.TiffSaver;
 import ome.units.UNITS;
 import ome.units.quantity.Length;
+import ome.units.quantity.Time;
 import ome.units.unit.Unit;
 import ome.xml.meta.MetadataConverter;
 import ome.xml.model.OME;
 import ome.xml.model.OMEModel;
+import ome.xml.model.enums.Binning;
 import ome.xml.model.enums.DetectorType;
 import ome.xml.model.enums.EnumerationException;
+import ome.xml.model.enums.IlluminationType;
 import ome.xml.model.enums.Immersion;
 import ome.xml.model.enums.MicroscopeType;
 import ome.xml.model.primitives.PercentFraction;
@@ -737,8 +740,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										continue;
 									}									
 									if(extendedLogging)	progress.notifyMessage("Found image node with id " + ImageLabelOPERA + " in OPERA metadata!", ProgressDialog.LOG);
-									
-									
+																		
 									/**
 									 * Determine X and Y position of well center
 									 */
@@ -793,24 +795,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										 * */
 										{
 											Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "AbsPositionZ");
-											Unit<Length> tempUnit = null;										
-											switch(tempNode.getAttributes().getNamedItem("Unit").getNodeValue()) {
-											case "m":
-												tempUnit = UNITS.METER;
-												break;
-											case "mm":
-												tempUnit = UNITS.MILLIMETER;
-												break;
-											case "micron":
-												tempUnit = UNITS.MICROMETER;
-												break;
-											case "um":
-												tempUnit = UNITS.MICROMETER;
-												break;
-											case "nm":
-												tempUnit = UNITS.NANOMETER;
-												break;										
-											}											
+											Unit<Length> tempUnit = this.getLengthUnitFromNodeAttribute(getFirstNodeWithName(imageNode.getChildNodes(), "AbsPositionZ"));					
 											if(Double.parseDouble(tempNode.getNodeValue()) != meta.getPlanePositionZ(imageIndex, p).value(tempUnit).doubleValue()){
 												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Z location in tiff metadata did not match metadata of image with reference " 
 														+ ImageLabelOPERA + "in OPERA Metadata XML!",
@@ -823,10 +808,174 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											}
 													
 										}
+									}									
+									
+									/**
+									 * Verify that image resolution is same in metadata
+									 * <ImageResolutionX Unit="m">9.4916838247105038E-08</ImageResolutionX>
+									 * <ImageResolutionY Unit="m">9.4916838247105038E-08</ImageResolutionY>
+									 */
+									{
+										Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionX");
+										Length tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getNodeValue()), 
+												getLengthUnitFromNodeAttribute(tempNode));
+										if(meta.getPixelsPhysicalSizeX(imageIndex).equals(tempLength)) {											
+											if(extendedLogging) {
+												progress.notifyMessage("Confirmed that physical size X matches metadata!", ProgressDialog.LOG);
+											}
+										}else {
+											progress.notifyMessage("Physical size X does not match image metadata! Image: " 
+													+ meta.getPixelsPhysicalSizeX(imageIndex).value().doubleValue()
+													+ " " + meta.getPixelsPhysicalSizeX(imageIndex).unit().getSymbol() 
+													+ ", XML Metadata:  " + tempNode.getNodeValue() + " " + getLengthUnitFromNodeAttribute(tempNode), ProgressDialog.LOG);
+										}
+									}
+									{
+										Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionY");
+										Length tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getNodeValue()), 
+												getLengthUnitFromNodeAttribute(tempNode));
+										if(meta.getPixelsPhysicalSizeY(imageIndex).equals(tempLength)) {											
+											if(extendedLogging) {
+												progress.notifyMessage("Confirmed that physical size Y matches metadata!", ProgressDialog.LOG);
+											}
+										}else {
+											progress.notifyMessage("Physical size Y does not match image metadata! Image: " 
+													+ meta.getPixelsPhysicalSizeY(imageIndex).value().doubleValue()
+													+ " " + meta.getPixelsPhysicalSizeY(imageIndex).unit().getSymbol() 
+													+ ", XML Metadata:  " + tempNode.getNodeValue() + " " + getLengthUnitFromNodeAttribute(tempNode), ProgressDialog.LOG);
+										}
+									}
+									
+									
+									
+									/** TODO Add to metadata
+										<CameraType>AndorZylaCam</CameraType>
+										<MeasurementTimeOffset Unit="s">0</MeasurementTimeOffset>
+										<AbsTime>2023-09-14T14:50:58.43+02:00</AbsTime>
+									 */
+									
+
+									/**
+									 * Generate instrument in metadata, use following information
+									 * <AcquisitionType>NipkowConfocal</AcquisitionType>
+									 * */
+									meta.setInstrumentID("Instrument:0", 0);
+									meta.setImageInstrumentRef("Instrument:0", imageIndex);
+									meta.setMicroscopeType(MicroscopeType.fromString("Other"), 0);
+									{
+										String model = getFirstNodeWithName(imageNode.getChildNodes(), "AcquisitionType").getNodeValue(); // "NipkowConfocal"
+										meta.setMicroscopeModel(model, 0);
 									}
 									
 									/**
-									 * Add original metadata TODO
+									 * Fetch objective stats from specifications
+									 * <ObjectiveNA Unit="">1.15</ObjectiveNA>	
+									 * <ObjectiveMagnification Unit="">63</ObjectiveMagnification>
+									 */
+									meta.setObjectiveID("Objective:0", 0, 0);
+									meta.setObjectiveLensNA(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getNodeValue()),
+											0,0);
+									meta.setObjectiveNominalMagnification(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getNodeValue()),
+											0, 0);
+									
+									// TODO add extended logging for objective and microscope type...
+									
+									/**
+									 * Set channel information
+									 * */
+									for(int channelId = 0; channelId < nChannels; channelId++) {
+										Node channelImageNode = getImageNodeWithID_OPERAMETADATA(imagesNode.getChildNodes(),
+												ImageLabelOPERA.substring(0,ImageLabelOPERA.length()-1)+channelId);
+										/**
+										 * 	Set excitation wavelength based on xml entry
+										 * 	<MainExcitationWavelength Unit="nm">640</MainExcitationWavelength>
+										 */
+										{
+											Node tempNode = this.getFirstNodeWithName(channelImageNode.getChildNodes(), "MainExcitationWavelength");
+											meta.setChannelExcitationWavelength(FormatTools.createLength(Double.parseDouble(tempNode.getNodeValue()),
+													this.getLengthUnitFromNodeAttribute(tempNode)),
+													imageIndex, channelId);
+											if(extendedLogging) {
+												progress.notifyMessage("Channel: " + channelId + " - set excitation wavelength to " 
+														+ meta.getChannelExcitationWavelength(imageIndex, channelId).value().doubleValue()
+														+ " " + meta.getChannelExcitationWavelength(imageIndex, channelId).unit().getSymbol()
+														+ "(Original entry " + tempNode.getNodeValue() + " "
+														+ tempNode.getAttributes().getNamedItem("Unit").getNodeValue() 
+														+ ")", ProgressDialog.LOG);
+											}										
+										}
+										
+										/**
+										 * 	Transfer binning
+										 * 	<BinningX>1</BinningX>
+										 * 	<BinningY>1</BinningY>			
+										*/
+										{
+											String binString = getFirstNodeWithName(channelImageNode.getChildNodes(), "BinningX").getNodeValue()
+													+ "x" + getFirstNodeWithName(channelImageNode.getChildNodes(), "BinningY").getNodeValue();
+											meta.setDetectorSettingsBinning(Binning.fromString(binString), imageIndex, channelId);
+											if(extendedLogging) {
+												progress.notifyMessage("Added binning for channel " + channelId + " :" 
+														+ meta.getDetectorSettingsBinning(imageIndex, channelId)
+														+ "(Original entry " + binString + ")", ProgressDialog.LOG);
+											}							
+										}
+										
+										/**
+										 * Convert illumination type
+										 * <IlluminationType>Epifluorescence</IlluminationType>
+										 * <ChannelType>Fluorescence</ChannelType>
+										 */										
+										try {
+											meta.setChannelIlluminationType(IlluminationType.fromString(getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getNodeValue()),
+													imageIndex, 0);
+											if(extendedLogging) {
+												progress.notifyMessage("Added illumination type for channel " + channelId + " :" 
+														+ meta.getChannelIlluminationType(imageIndex, channelId)
+														+ "(Original entry " + getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getNodeValue() + ")", ProgressDialog.LOG);
+											}
+										}catch(EnumerationException en) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": IlluminationType could not be translated to OME xml. Thus IlluminationType in OME xml was set to 'Other'."
+													+ "(Original Illumination type: " + getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getNodeValue() + ")",
+													ProgressDialog.NOTIFICATION);
+											meta.setChannelIlluminationType(IlluminationType.fromString("Other"),
+													imageIndex, 0);
+										}
+										
+										/**
+										 * 	TODO Convert Emission Wavelength
+											<MainEmissionWavelength Unit="nm">706</MainEmissionWavelength>
+										 */
+										
+										/**
+										 *	Fetch exposure time and unit and write for the channel planes
+										 * 	<ExposureTime Unit="s">0.2</ExposureTime>ExposureTime
+										 */
+										for(int p = 0; p < meta.getPlaneCount(imageIndex); p++) {
+											if(meta.getPlaneTheC(imageIndex, p).getNumberValue().intValue()==channelId) {
+												/**
+												 * First determine the Unit, then fetch exposure time and add
+												 * */
+												{
+													Node tempNode = getFirstNodeWithName(channelImageNode.getChildNodes(), "ExposureTime");
+													meta.setPlaneExposureTime(FormatTools.createTime(Double.parseDouble(tempNode.getNodeValue()), 
+															this.getTimeUnitFromNodeAttribute(tempNode)),
+															imageIndex, p);		
+													
+													if(extendedLogging) {
+														progress.notifyMessage("Plane " + p + ": Set exposure time to " + meta.getPlaneExposureTime(imageIndex, p).value().doubleValue()
+																+ " " + meta.getPlaneExposureTime(imageIndex, p).unit().getSymbol() 
+																+ "(Original entry " + tempNode.getNodeValue() + " "
+																+ tempNode.getAttributes().getNamedItem("Unit").getNodeValue() 
+																+ ")", ProgressDialog.LOG);
+													}
+												}
+											}
+										}
+									}
+									
+									/**
+									 * Continue adding metadata
 									 * */
 									
 									
@@ -866,12 +1015,21 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											+ "\nDetailed message:"
 											+ "\n" + out,
 											ProgressDialog.ERROR);
+								} catch (EnumerationException e) {
+									String out = "";
+									for (int err = 0; err < e.getStackTrace().length; err++) {
+										out += " \n " + e.getStackTrace()[err].toString();
+									}
+									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Error when creating file " + omeTifFileName 
+											+ "\nError message: " + e.getMessage()
+											+ "\nError localized message: " + e.getLocalizedMessage()
+											+ "\nError cause: " + e.getCause() 
+											+ "\nDetailed message:"
+											+ "\n" + out,
+											ProgressDialog.ERROR);
 								}								
 							}
 						}
-						
-						
-						
 					}
 					
 					try {
@@ -997,6 +1155,67 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			}
 		}
 		return null;
+	}
+	
+	private Unit<Time> getTimeUnitFromNodeAttribute(Node tempNode) {
+		Unit<Time> tempUnit = null;										
+		switch(tempNode.getAttributes().getNamedItem("Unit").getNodeValue()) {
+		case "s":
+			tempUnit = UNITS.SECOND;
+			break;
+		case "ms":
+			tempUnit = UNITS.MILLISECOND;
+			break;
+		case "ns":
+			tempUnit = UNITS.NANOSECOND;
+			break;
+		case "us":
+			tempUnit = UNITS.MICROSECOND;
+			break;
+		case "\u00b5s":
+			tempUnit = UNITS.MICROSECOND;
+			break;
+		}
+		
+		if(extendedLogging) {
+			progress.notifyMessage("Casting Time Unit " + tempNode.getAttributes().getNamedItem("Unit").getNodeValue() + " to "
+					+ tempUnit.getSymbol(), ProgressDialog.LOG);
+		}
+		
+		return tempUnit;
+		
+	}
+	
+	private Unit<Length> getLengthUnitFromNodeAttribute(Node tempNode) {
+		Unit<Length> tempUnit = null;
+		switch(tempNode.getAttributes().getNamedItem("Unit").getNodeValue()) {
+		case "m":
+			tempUnit = UNITS.METER;
+			break;
+		case "mm":
+			tempUnit = UNITS.MILLIMETER;
+			break;
+		case "micron":
+			tempUnit = UNITS.MICROMETER;
+			break;
+		case "\u00b5m":
+			tempUnit = UNITS.MICROMETER;
+			break;
+		case "um":
+			tempUnit = UNITS.MICROMETER;
+			break;
+		case "nm":
+			tempUnit = UNITS.NANOMETER;
+			break;
+		}
+		
+		if(extendedLogging) {
+			progress.notifyMessage("Casting Length Unit " + tempNode.getAttributes().getNamedItem("Unit").getNodeValue() + " to "
+					+ tempUnit.getSymbol(), ProgressDialog.LOG);
+		}
+		
+		return tempUnit;
+		
 	}
 	
 }// end main class
