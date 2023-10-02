@@ -55,6 +55,7 @@ import javax.xml.transform.stream.StreamResult;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.IOUtils;
+import org.joda.time.DateTimeZone;
 import org.w3c.dom.DOMException;
 //W3C definitions for a DOM, DOM exceptions, entities, nodes
 import org.w3c.dom.Document;
@@ -106,6 +107,7 @@ import ome.xml.model.enums.IlluminationType;
 import ome.xml.model.enums.Immersion;
 import ome.xml.model.enums.MicroscopeType;
 import ome.xml.model.primitives.PercentFraction;
+import ome.xml.model.primitives.Timestamp;
 
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
@@ -845,16 +847,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 													+ ", XML Metadata:  " + tempNode.getNodeValue() + " " + getLengthUnitFromNodeAttribute(tempNode), ProgressDialog.LOG);
 										}
 									}
-									
-									
-									
-									/** TODO Add to metadata
-										<CameraType>AndorZylaCam</CameraType>
-										<MeasurementTimeOffset Unit="s">0</MeasurementTimeOffset>
-										<AbsTime>2023-09-14T14:50:58.43+02:00</AbsTime>
-									 */
-									
-
+																											
 									/**
 									 * Generate instrument in metadata, use following information
 									 * <AcquisitionType>NipkowConfocal</AcquisitionType>
@@ -880,12 +873,157 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									
 									// TODO add extended logging for objective and microscope type...
 									
+									/** Find out the well sample time from time stamps for individual planes
+									 *	<AbsTime>2023-09-14T14:50:58.43+02:00</AbsTime>
+									 */
+									
+									ome.xml.model.primitives.Timestamp start = null, end = null;									
+									for(int p = 0; p < meta.getPlaneCount(imageIndex); p++) {
+										String OPERAString= "";
+										if(String.valueOf(wellRow).length() == 1){
+											OPERAString += "0";										
+										}
+										OPERAString += String.valueOf(wellRow);
+										if(String.valueOf(wellColumn).length() == 1){
+											OPERAString += "0";										
+										}
+										OPERAString += String.valueOf(wellColumn);
+										OPERAString += "K" + String.valueOf(meta.getPlaneTheT(imageIndex, p).getValue()+1);
+										OPERAString += "F" + String.valueOf(wellSampleIndex+1);
+										OPERAString += "P" + String.valueOf(meta.getPlaneTheZ(imageIndex, p).getValue()+1);
+										OPERAString += "R" + String.valueOf(meta.getPlaneTheC(imageIndex, p).getValue()+1);
+																				
+										Node planeImageNode = getImageNodeWithID_OPERAMETADATA(imagesNode.getChildNodes(),
+												OPERAString);
+										Node tempNode = this.getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsTime");
+										if(extendedLogging){
+											progress.notifyMessage("Screening planes for acquisition times. Image  " 
+													+ OPERAString
+													+ " has time " 
+													+ tempNode.getNodeValue()
+													+ "", ProgressDialog.LOG);
+										}
+										
+										ome.xml.model.primitives.Timestamp pTime = ome.xml.model.primitives.Timestamp.valueOf(tempNode.getNodeValue());
+										if(extendedLogging){
+											progress.notifyMessage("Screening planes for acquisition times. Time converted to  " 
+													+ pTime.getValue()
+													+ "", ProgressDialog.LOG);
+										}
+										
+										if(p == 0){
+											start = pTime;
+											end = pTime;
+											if(extendedLogging){
+												progress.notifyMessage("Screening planes for acquisition times. First found Start " 
+														+ start.asDateTime(DateTimeZone.UTC).toString()
+														+ " end " 
+														+ start.asDateTime(DateTimeZone.UTC).toString()
+														+ " is saved as "
+														+ meta.getWellSampleTimepoint(plateIndex, wellIndex, wellSampleIndex)
+														+ "", ProgressDialog.LOG);
+											}
+										}else{
+											if(pTime.asDateTime(DateTimeZone.UTC).isBefore(start.asDateTime(DateTimeZone.UTC))) {
+												start = pTime;
+											}
+											if(pTime.asDateTime(DateTimeZone.UTC).isAfter(start.asDateTime(DateTimeZone.UTC))) {
+												end = pTime;
+											}
+										}
+
+										meta.setPlaneAnnotationRef("Originalid:	"
+												+ OPERAString,
+												imageIndex, p, 0);
+										meta.setPlaneAnnotationRef("OriginalURL:	"
+												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "URL").getNodeValue(),
+												imageIndex, p, 1);
+										meta.setPlaneAnnotationRef("OriginalAbsTime:	"
+												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsTime").getNodeValue(),
+												imageIndex, p, 2);
+										meta.setPlaneAnnotationRef("OriginalOrientationMatrix:	"
+												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "OrientationMatrix").getNodeValue(),
+												imageIndex, p, 3);
+										if(extendedLogging){
+											progress.notifyMessage("Storing custom plane metadata:" 
+													+ OPERAString
+													+ " stored as " 
+													+ meta.getPlaneAnnotationRef(imageIndex, p, 0)
+													+ " (total ref count: " 
+													+ meta.getPlaneAnnotationRefCount(imageIndex, p)
+													+ ")", ProgressDialog.LOG);
+											progress.notifyMessage("Storing custom plane metadata:" 
+													+ getFirstNodeWithName(planeImageNode.getChildNodes(), "URL").getNodeValue()
+													+ " stored as " 
+													+ meta.getPlaneAnnotationRef(imageIndex, p, 1)
+													+ " (total ref count: " 
+													+ meta.getPlaneAnnotationRefCount(imageIndex, p)
+													+ ")", ProgressDialog.LOG);
+											progress.notifyMessage("Storing custom plane metadata:" 
+													+ getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsTime").getNodeValue()
+													+ " stored as " 
+													+ meta.getPlaneAnnotationRef(imageIndex, p, 2)
+													+ " (total ref count: " 
+													+ meta.getPlaneAnnotationRefCount(imageIndex, p)
+													+ ")", ProgressDialog.LOG);
+											progress.notifyMessage("Storing custom plane metadata:" 
+													+ getFirstNodeWithName(planeImageNode.getChildNodes(), "OrientationMatrix").getNodeValue()
+													+ " stored as " 
+													+ meta.getPlaneAnnotationRef(imageIndex, p, 3)
+													+ " (total ref count: " 
+													+ meta.getPlaneAnnotationRefCount(imageIndex, p)
+													+ ")", ProgressDialog.LOG);
+										}
+									}
+									meta.setWellSampleTimepoint(start, plateIndex, wellIndex, wellSampleIndex);
+									if(extendedLogging){
+										progress.notifyMessage("Found start and end of acuqisition time points. Start " 
+												+ start.asDateTime(DateTimeZone.UTC).toString()
+												+ " end " 
+												+ start.asDateTime(DateTimeZone.UTC).toString()
+												+ " is saved as "
+												+ meta.getWellSampleTimepoint(plateIndex, wellIndex, wellSampleIndex)
+												+ "", ProgressDialog.LOG);
+									}
+									
+									
+
 									/**
 									 * Set channel information
 									 * */
 									for(int channelId = 0; channelId < nChannels; channelId++) {
 										Node channelImageNode = getImageNodeWithID_OPERAMETADATA(imagesNode.getChildNodes(),
 												ImageLabelOPERA.substring(0,ImageLabelOPERA.length()-1)+channelId);
+										
+										/**
+										 * Add detector or find detector
+										 * <CameraType>AndorZylaCam</CameraType>
+										 */
+										int detectorId = meta.getDetectorCount(0);
+										{
+											Node tempNode = this.getFirstNodeWithName(channelImageNode.getChildNodes(), "CameraType");
+											for(int dt = 0; dt < meta.getDetectorCount(0); dt++) {
+												if(meta.getDetectorModel(0, dt).equals(tempNode.getNodeValue())) {
+													detectorId = dt;
+													break;
+												}
+											}	
+											if(detectorId == meta.getDetectorCount(0)) {
+												//In this case the detector has not been found in list and we need to add it
+												meta.setDetectorModel(tempNode.getNodeValue(), 0, detectorId);
+												if(extendedLogging){
+													progress.notifyMessage("Added detector with id " 
+															+ detectorId
+															+ " to metadata object. Named the detector " 
+															+ tempNode.getNodeValue()
+															+ " which was saved as "
+															+ meta.getDetectorModel(0, detectorId)
+															+ ".", ProgressDialog.LOG);
+												}
+											}											
+										}
+										
+										
 										/**
 										 * 	Set excitation wavelength based on xml entry
 										 * 	<MainExcitationWavelength Unit="nm">640</MainExcitationWavelength>
@@ -972,6 +1110,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												}
 											}
 										}
+										
+										
 									}
 									
 									/**
