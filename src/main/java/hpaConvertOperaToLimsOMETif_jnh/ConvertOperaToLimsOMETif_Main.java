@@ -858,7 +858,15 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									{
 										String model = getFirstNodeWithName(imageNode.getChildNodes(), "AcquisitionType").getNodeValue(); // "NipkowConfocal"
 										meta.setMicroscopeModel(model, 0);
+										if(extendedLogging) {
+											progress.notifyMessage("Transfered microscope model (Original: " 
+													+ model
+													+ ") and stored as "
+													+ meta.getMicroscopeModel(0)
+													+ ".", ProgressDialog.LOG);
+										}
 									}
+									
 									
 									/**
 									 * Fetch objective stats from specifications
@@ -868,10 +876,23 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									meta.setObjectiveID("Objective:0", 0, 0);
 									meta.setObjectiveLensNA(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getNodeValue()),
 											0,0);
+									if(extendedLogging) {
+										progress.notifyMessage("Transfered objective NA (Original: " 
+												+ getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getNodeValue() 
+												+ ") and stored as "
+												+ meta.getObjectiveLensNA(0, 0)
+												+ ".", ProgressDialog.LOG);
+									}
+									
 									meta.setObjectiveNominalMagnification(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getNodeValue()),
 											0, 0);
-									
-									// TODO add extended logging for objective and microscope type...
+									if(extendedLogging) {
+										progress.notifyMessage("Transfered objective Nominal Magnification (Original: " 
+												+ getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getNodeValue() 
+												+ ") and stored as "
+												+ meta.getObjectiveNominalMagnification(0, 0)
+												+ ".", ProgressDialog.LOG);
+									}								
 									
 									/** Find out the well sample time from time stamps for individual planes
 									 *	<AbsTime>2023-09-14T14:50:58.43+02:00</AbsTime>
@@ -1043,6 +1064,15 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											}										
 										}
 										
+
+										/**
+										 * 	Set emission wavelength based on xml entry
+										 * 	TODO Convert Emission Wavelength
+											<MainEmissionWavelength Unit="nm">706</MainEmissionWavelength>
+										 */
+										
+										
+										
 										/**
 										 * 	Transfer binning
 										 * 	<BinningX>1</BinningX>
@@ -1079,12 +1109,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											meta.setChannelIlluminationType(IlluminationType.fromString("Other"),
 													imageIndex, 0);
 										}
-										
-										/**
-										 * 	TODO Convert Emission Wavelength
-											<MainEmissionWavelength Unit="nm">706</MainEmissionWavelength>
-										 */
-										
+																				
 										/**
 										 *	Fetch exposure time and unit and write for the channel planes
 										 * 	<ExposureTime Unit="s">0.2</ExposureTime>ExposureTime
