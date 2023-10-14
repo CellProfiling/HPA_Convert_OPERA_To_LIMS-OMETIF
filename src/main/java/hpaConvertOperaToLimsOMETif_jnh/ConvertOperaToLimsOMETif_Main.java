@@ -481,7 +481,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 
 				String outFilename = orDirName + "_" + (series[task]+1);
 				
-				progress.notifyMessage("Retrieved original dir name: " + orDirName, ProgressDialog.LOG); // TODO
+				if(extendedLogging) {
+					progress.notifyMessage("Retrieved original dir name: " + orDirName, ProgressDialog.LOG);
+					
+				}
 				
 				/**
 				 * Create a temporary file repository and write the files into an OME-TIF format, output images will be called <outFilename>_Z2_C4.ome
@@ -551,21 +554,42 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				Node wellsNode = metaDoc.getElementsByTagName("Wells").item(0);
 				Node platesNode = metaDoc.getElementsByTagName("Plates").item(0);
 				
-				if(extendedLogging) {
-					progress.notifyMessage("Fetched <Images> node and found " + imagesNode.getChildNodes().getLength() + " images.", ProgressDialog.LOG);
-					progress.notifyMessage("Fetched <Wells> node and found " + wellsNode.getChildNodes().getLength() + " wells.", ProgressDialog.LOG);
-					progress.notifyMessage("Fetched <Plates> node and found " + platesNode.getChildNodes().getLength() + " plates.", ProgressDialog.LOG);
-				}
-
+				/**
+				 * Exploring the number of plates
+				 */				
 				int plateIndexOriginalMetadata = 0;
-				Node plateNode = platesNode.getChildNodes().item(plateIndexOriginalMetadata);
-				String plateIDOriginalMetadata = getFirstNodeWithName(plateNode.getChildNodes(), "PlateID").getNodeValue();
-				if(platesNode.getChildNodes().getLength() > 1){
-					progress.notifyMessage("WARNING! " + platesNode.getChildNodes().getLength() + " different plates were found in the metadata xml file. "
-							+ "So far this software can only handle recording from one plate. Metadata from plate " + plateIDOriginalMetadata + " will be used. "
-							+ "Wrong metadata may be copied for files from other plates. "
-							+ "Contact the developer to implement converting images from multiple plates! ", ProgressDialog.NOTIFICATION);
+				for(int p = 0; p < platesNode.getChildNodes().getLength(); p++){
+					if(platesNode.getChildNodes().item(p).getNodeName().equals("Plate")) {
+						plateIndexOriginalMetadata = p;
+						break;
+					}
 				}
+				Node plateNode = platesNode.getChildNodes().item(plateIndexOriginalMetadata);	
+				String plateIDOriginalMetadata = getFirstNodeWithName(plateNode.getChildNodes(), "PlateID").getTextContent();
+				if(extendedLogging){
+					progress.notifyMessage("Fetched first plate node (id = " + plateIndexOriginalMetadata 
+							+ ") with id " + plateIDOriginalMetadata + ".", ProgressDialog.LOG);
+				}
+				
+				/**
+				 * Verifying the number of plates
+				 */
+				{
+					int nrOfPlates = 0;
+					for(int pp = 0; pp < platesNode.getChildNodes().getLength(); pp++){
+						if(platesNode.getChildNodes().item(pp).getNodeName().equals("Plate")) {
+							nrOfPlates++;
+						}
+					}
+					if(nrOfPlates > 1){
+						progress.notifyMessage("ERROR! Task " + (task + 1) + "/" + tasks + ": " + nrOfPlates + " different plates were found in the metadata xml file. "
+								+ "So far this software can only handle recording from one plate. Metadata from plate " + plateIDOriginalMetadata + " will be used. "
+								+ "Wrong metadata may be copied for files from other plates. "
+								+ "Contact the developer to implement converting images from multiple plates! ", ProgressDialog.ERROR);
+						return;
+						
+					}
+				}			
 									
 				/*
 				 * Reopen each written file and resave it 
@@ -591,8 +615,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								progress.updateBarText("Reading " + omeTifFileName + " done!");
 								// display comment, and prompt for changes
 								if(logWholeOMEXMLComments) {
-									progress.notifyMessage("Original comment:", ProgressDialog.LOG);
-									progress.notifyMessage(comment, ProgressDialog.LOG);
+									progress.notifyMessage("Original comment:\n" + comment, ProgressDialog.LOG);
 								}
 								
 								Document metaDocOME;
@@ -633,6 +656,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								}
 								int imageIndex = 0;
 								String imageID = meta.getImageID(imageIndex);
+								if(extendedLogging){
+									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + ". Fetched imageId: " + imageID + ".", ProgressDialog.LOG);
+								}
 								
 								/**
 								 * Find the plate, well, and wellSample that the image is from.
@@ -645,17 +671,20 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								plateID = "NA";
 								wellID = "NA";
 								
-								for(int p = 0; p < meta.getPlateCount(); p++) {
+								findingImage: for(int p = 0; p < meta.getPlateCount(); p++) {
 									plateID = meta.getPlateID(p);
 									for(int w = 0; w < meta.getWellCount(p); w++) {
 										wellID = meta.getWellID(p, w);
 										for(int sam = 0; sam < meta.getWellSampleCount(p, w); sam ++) {
-											if(meta.getWellSampleImageRef(p, w, sam).equals(imageID)){
-												plateIndex = p;
-												wellIndex = w;
-												wellSampleIndex = sam;													
-												break;
-											}
+											try {
+												if(meta.getWellSampleImageRef(p, w, sam).equals(imageID)){
+													plateIndex = p;
+													wellIndex = w;
+													wellSampleIndex = sam;													
+													break findingImage;
+												}
+											}catch(Exception e) {
+											}											
 										}
 									}
 								}
@@ -664,6 +693,12 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Could not find image noted in plate and well OME annotations!",
 											ProgressDialog.ERROR);
 									continue;										
+								}else if(extendedLogging){
+									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Found image in plate and well OME annotations under"
+											+ " plateIndex " + plateIndex
+											+ " wellIndex " + wellIndex
+											+ " wellSampleIndex " + wellSampleIndex,
+											ProgressDialog.LOG);
 								}
 								
 								/**
@@ -704,7 +739,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 */
 								int imageC = -1, imageT = -1, imageZ = -1;
 								for(int td = 0; td < metaDocOME.getElementsByTagName("TiffData").getLength(); td++) {
-									if(meta.getUUID() == metaDocOME.getElementsByTagName("TiffData").item(td).getChildNodes().item(0).getNodeValue()) {
+									if(meta.getUUID() == metaDocOME.getElementsByTagName("TiffData").item(td).getChildNodes().item(0).getTextContent()) {
 										imageC = Integer.parseInt(metaDocOME.getElementsByTagName("TiffData").item(td).getAttributes().getNamedItem("FirstC").getNodeValue());
 										imageT = Integer.parseInt(metaDocOME.getElementsByTagName("TiffData").item(td).getAttributes().getNamedItem("FirstT").getNodeValue());
 										imageZ = Integer.parseInt(metaDocOME.getElementsByTagName("TiffData").item(td).getAttributes().getNamedItem("FirstZ").getNodeValue());
@@ -815,7 +850,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									{
 										Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "AbsPositionZ");
 										Unit<Length> tempUnit = this.getLengthUnitFromNodeAttribute(getFirstNodeWithName(imageNode.getChildNodes(), "AbsPositionZ"));					
-										if(Double.parseDouble(tempNode.getNodeValue()) != meta.getPlanePositionZ(imageIndex, p).value(tempUnit).doubleValue()){
+										if(Double.parseDouble(tempNode.getTextContent()) != meta.getPlanePositionZ(imageIndex, p).value(tempUnit).doubleValue()){
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Z location in tiff metadata did not match metadata of image with reference " 
 													+ ImageLabelOPERA + "in OPERA Metadata XML!",
 													ProgressDialog.ERROR);
@@ -836,7 +871,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 */
 								{
 									Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionX");
-									Length tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getNodeValue()), 
+									Length tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()), 
 											getLengthUnitFromNodeAttribute(tempNode));
 									if(meta.getPixelsPhysicalSizeX(imageIndex).equals(tempLength)) {											
 										if(extendedLogging) {
@@ -846,12 +881,12 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										progress.notifyMessage("Physical size X does not match image metadata! Image: " 
 												+ meta.getPixelsPhysicalSizeX(imageIndex).value().doubleValue()
 												+ " " + meta.getPixelsPhysicalSizeX(imageIndex).unit().getSymbol() 
-												+ ", XML Metadata:  " + tempNode.getNodeValue() + " " + getLengthUnitFromNodeAttribute(tempNode), ProgressDialog.LOG);
+												+ ", XML Metadata:  " + tempNode.getTextContent() + " " + getLengthUnitFromNodeAttribute(tempNode), ProgressDialog.LOG);
 									}
 								}
 								{
 									Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionY");
-									Length tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getNodeValue()), 
+									Length tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()), 
 											getLengthUnitFromNodeAttribute(tempNode));
 									if(meta.getPixelsPhysicalSizeY(imageIndex).equals(tempLength)) {											
 										if(extendedLogging) {
@@ -861,7 +896,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										progress.notifyMessage("Physical size Y does not match image metadata! Image: " 
 												+ meta.getPixelsPhysicalSizeY(imageIndex).value().doubleValue()
 												+ " " + meta.getPixelsPhysicalSizeY(imageIndex).unit().getSymbol() 
-												+ ", XML Metadata:  " + tempNode.getNodeValue() + " " + getLengthUnitFromNodeAttribute(tempNode), ProgressDialog.LOG);
+												+ ", XML Metadata:  " + tempNode.getTextContent() + " " + getLengthUnitFromNodeAttribute(tempNode), ProgressDialog.LOG);
 									}
 								}
 																										
@@ -873,7 +908,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								meta.setImageInstrumentRef("Instrument:0", imageIndex);
 								meta.setMicroscopeType(MicroscopeType.fromString("Other"), 0);
 								{
-									String model = getFirstNodeWithName(imageNode.getChildNodes(), "AcquisitionType").getNodeValue(); // "NipkowConfocal"
+									String model = getFirstNodeWithName(imageNode.getChildNodes(), "AcquisitionType").getTextContent(); // "NipkowConfocal"
 									meta.setMicroscopeModel(model, 0);
 									if(extendedLogging) {
 										progress.notifyMessage("Transfered microscope model (Original: " 
@@ -891,21 +926,21 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 * <ObjectiveMagnification Unit="">63</ObjectiveMagnification>
 								 */
 								meta.setObjectiveID("Objective:0", 0, 0);
-								meta.setObjectiveLensNA(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getNodeValue()),
+								meta.setObjectiveLensNA(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getTextContent()),
 										0,0);
 								if(extendedLogging) {
 									progress.notifyMessage("Transfered objective NA (Original: " 
-											+ getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getNodeValue() 
+											+ getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getTextContent() 
 											+ ") and stored as "
 											+ meta.getObjectiveLensNA(0, 0)
 											+ ".", ProgressDialog.LOG);
 								}
 								
-								meta.setObjectiveNominalMagnification(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getNodeValue()),
+								meta.setObjectiveNominalMagnification(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getTextContent()),
 										0, 0);
 								if(extendedLogging) {
 									progress.notifyMessage("Transfered objective Nominal Magnification (Original: " 
-											+ getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getNodeValue() 
+											+ getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getTextContent() 
 											+ ") and stored as "
 											+ meta.getObjectiveNominalMagnification(0, 0)
 											+ ".", ProgressDialog.LOG);
@@ -938,11 +973,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										progress.notifyMessage("Screening planes for acquisition times. Image  " 
 												+ OPERAString
 												+ " has time " 
-												+ tempNode.getNodeValue()
+												+ tempNode.getTextContent()
 												+ "", ProgressDialog.LOG);
 									}
 									
-									ome.xml.model.primitives.Timestamp pTime = ome.xml.model.primitives.Timestamp.valueOf(tempNode.getNodeValue());
+									ome.xml.model.primitives.Timestamp pTime = ome.xml.model.primitives.Timestamp.valueOf(tempNode.getTextContent());
 									if(extendedLogging){
 										progress.notifyMessage("Screening planes for acquisition times. Time converted to  " 
 												+ pTime.getValue()
@@ -974,13 +1009,13 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											+ OPERAString,
 											imageIndex, p, 0);
 									meta.setPlaneAnnotationRef("OriginalURL:	"
-											+ getFirstNodeWithName(planeImageNode.getChildNodes(), "URL").getNodeValue(),
+											+ getFirstNodeWithName(planeImageNode.getChildNodes(), "URL").getTextContent(),
 											imageIndex, p, 1);
 									meta.setPlaneAnnotationRef("OriginalAbsTime:	"
-											+ getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsTime").getNodeValue(),
+											+ getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsTime").getTextContent(),
 											imageIndex, p, 2);
 									meta.setPlaneAnnotationRef("OriginalOrientationMatrix:	"
-											+ getFirstNodeWithName(planeImageNode.getChildNodes(), "OrientationMatrix").getNodeValue(),
+											+ getFirstNodeWithName(planeImageNode.getChildNodes(), "OrientationMatrix").getTextContent(),
 											imageIndex, p, 3);
 									if(extendedLogging){
 										progress.notifyMessage("Storing custom plane metadata:" 
@@ -991,21 +1026,21 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												+ meta.getPlaneAnnotationRefCount(imageIndex, p)
 												+ ")", ProgressDialog.LOG);
 										progress.notifyMessage("Storing custom plane metadata:" 
-												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "URL").getNodeValue()
+												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "URL").getTextContent()
 												+ " stored as " 
 												+ meta.getPlaneAnnotationRef(imageIndex, p, 1)
 												+ " (total ref count: " 
 												+ meta.getPlaneAnnotationRefCount(imageIndex, p)
 												+ ")", ProgressDialog.LOG);
 										progress.notifyMessage("Storing custom plane metadata:" 
-												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsTime").getNodeValue()
+												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsTime").getTextContent()
 												+ " stored as " 
 												+ meta.getPlaneAnnotationRef(imageIndex, p, 2)
 												+ " (total ref count: " 
 												+ meta.getPlaneAnnotationRefCount(imageIndex, p)
 												+ ")", ProgressDialog.LOG);
 										progress.notifyMessage("Storing custom plane metadata:" 
-												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "OrientationMatrix").getNodeValue()
+												+ getFirstNodeWithName(planeImageNode.getChildNodes(), "OrientationMatrix").getTextContent()
 												+ " stored as " 
 												+ meta.getPlaneAnnotationRef(imageIndex, p, 3)
 												+ " (total ref count: " 
@@ -1041,19 +1076,19 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									{
 										Node tempNode = this.getFirstNodeWithName(channelImageNode.getChildNodes(), "CameraType");
 										for(int dt = 0; dt < meta.getDetectorCount(0); dt++) {
-											if(meta.getDetectorModel(0, dt).equals(tempNode.getNodeValue())) {
+											if(meta.getDetectorModel(0, dt).equals(tempNode.getTextContent())) {
 												detectorId = dt;
 												break;
 											}
 										}	
 										if(detectorId == meta.getDetectorCount(0)) {
 											//In this case the detector has not been found in list and we need to add it
-											meta.setDetectorModel(tempNode.getNodeValue(), 0, detectorId);
+											meta.setDetectorModel(tempNode.getTextContent(), 0, detectorId);
 											if(extendedLogging){
 												progress.notifyMessage("Added detector with id " 
 														+ detectorId
 														+ " to metadata object. Named the detector " 
-														+ tempNode.getNodeValue()
+														+ tempNode.getTextContent()
 														+ " which was saved as "
 														+ meta.getDetectorModel(0, detectorId)
 														+ ".", ProgressDialog.LOG);
@@ -1068,14 +1103,14 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 */
 									{
 										Node tempNode = this.getFirstNodeWithName(channelImageNode.getChildNodes(), "MainExcitationWavelength");
-										meta.setChannelExcitationWavelength(FormatTools.createLength(Double.parseDouble(tempNode.getNodeValue()),
+										meta.setChannelExcitationWavelength(FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()),
 												this.getLengthUnitFromNodeAttribute(tempNode)),
 												imageIndex, channelId);
 										if(extendedLogging) {
 											progress.notifyMessage("Channel: " + channelId + " - set excitation wavelength to " 
 													+ meta.getChannelExcitationWavelength(imageIndex, channelId).value().doubleValue()
 													+ " " + meta.getChannelExcitationWavelength(imageIndex, channelId).unit().getSymbol()
-													+ "(Original entry " + tempNode.getNodeValue() + " "
+													+ "(Original entry " + tempNode.getTextContent() + " "
 													+ tempNode.getAttributes().getNamedItem("Unit").getNodeValue() 
 													+ ")", ProgressDialog.LOG);
 										}										
@@ -1088,14 +1123,14 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 */
 									{
 										Node tempNode = this.getFirstNodeWithName(channelImageNode.getChildNodes(), "MainEmissionWavelength");
-										meta.setChannelEmissionWavelength(FormatTools.createLength(Double.parseDouble(tempNode.getNodeValue()),
+										meta.setChannelEmissionWavelength(FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()),
 												this.getLengthUnitFromNodeAttribute(tempNode)),
 												imageIndex, channelId);
 										if(extendedLogging) {
 											progress.notifyMessage("Channel: " + channelId + " - set emission wavelength to " 
 													+ meta.getChannelEmissionWavelength(imageIndex, channelId).value().doubleValue()
 													+ " " + meta.getChannelEmissionWavelength(imageIndex, channelId).unit().getSymbol()
-													+ "(Original entry " + tempNode.getNodeValue() + " "
+													+ "(Original entry " + tempNode.getTextContent() + " "
 													+ tempNode.getAttributes().getNamedItem("Unit").getNodeValue() 
 													+ ")", ProgressDialog.LOG);
 										}										
@@ -1108,8 +1143,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * 	<BinningY>1</BinningY>			
 									*/
 									{
-										String binString = getFirstNodeWithName(channelImageNode.getChildNodes(), "BinningX").getNodeValue()
-												+ "x" + getFirstNodeWithName(channelImageNode.getChildNodes(), "BinningY").getNodeValue();
+										String binString = getFirstNodeWithName(channelImageNode.getChildNodes(), "BinningX").getTextContent()
+												+ "x" + getFirstNodeWithName(channelImageNode.getChildNodes(), "BinningY").getTextContent();
 										meta.setDetectorSettingsBinning(Binning.fromString(binString), imageIndex, channelId);
 										if(extendedLogging) {
 											progress.notifyMessage("Added binning for channel " + channelId + " :" 
@@ -1129,11 +1164,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										if(extendedLogging) {
 											progress.notifyMessage("Added illumination type for channel " + channelId + " :" 
 													+ meta.getChannelIlluminationType(imageIndex, channelId)
-													+ "(Original entry " + getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getNodeValue() + ")", ProgressDialog.LOG);
+													+ "(Original entry " + getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getTextContent() + ")", ProgressDialog.LOG);
 										}
 									}catch(EnumerationException en) {
 										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": IlluminationType could not be translated to OME xml. Thus IlluminationType in OME xml was set to 'Other'."
-												+ "(Original Illumination type: " + getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getNodeValue() + ")",
+												+ "(Original Illumination type: " + getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getTextContent() + ")",
 												ProgressDialog.NOTIFICATION);
 										meta.setChannelIlluminationType(IlluminationType.fromString("Other"),
 												imageIndex, 0);
@@ -1150,14 +1185,14 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											 * */
 											{
 												Node tempNode = getFirstNodeWithName(channelImageNode.getChildNodes(), "ExposureTime");
-												meta.setPlaneExposureTime(FormatTools.createTime(Double.parseDouble(tempNode.getNodeValue()), 
+												meta.setPlaneExposureTime(FormatTools.createTime(Double.parseDouble(tempNode.getTextContent()), 
 														this.getTimeUnitFromNodeAttribute(tempNode)),
 														imageIndex, p);		
 												
 												if(extendedLogging) {
 													progress.notifyMessage("Plane " + p + ": Set exposure time to " + meta.getPlaneExposureTime(imageIndex, p).value().doubleValue()
 															+ " " + meta.getPlaneExposureTime(imageIndex, p).unit().getSymbol() 
-															+ "(Original entry " + tempNode.getNodeValue() + " "
+															+ "(Original entry " + tempNode.getTextContent() + " "
 															+ tempNode.getAttributes().getNamedItem("Unit").getNodeValue() 
 															+ ")", ProgressDialog.LOG);
 												}
@@ -1197,7 +1232,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									// Generate a new unique directory to save the images									
 									String wellString = "";
 									try{
-										wellString = this.rowNumberToLetter(wellRow) + wellColumn; 
+										wellString = this.rowNumberToLetter(wellRow+1) + (wellColumn+1); 
 									}catch(IndexOutOfBoundsException e) {
 										wellString = "R" + wellRow + "C" + wellColumn + System.getProperty("file.separator"); 
 										String out = "";
@@ -1250,6 +1285,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									//Copy the file to the new folder.
 									FileUtils.copyFile(new File(omeTifFileName), new File(savePath + saveName));
 									
+									//TODO Replace the FileName attribute in the UUID under TiffData in the OME XML with names following this name convention
+									
+									//Copy metadata
 									File newMetadataFile = new File(savePath + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator") + "image.ome.xml");
 									if(newMetadataFile.exists()) {
 										if(extendedLogging)	progress.notifyMessage("Metadata existed already (" + newMetadataFile.getAbsolutePath() + ")", ProgressDialog.LOG);
@@ -1258,6 +1296,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										FileUtils.copyFile(metaDataFile, newMetadataFile);
 										if(extendedLogging)	progress.notifyMessage("Saved meta data file (" + metaDataFile + ") as " + newMetadataFile.getAbsolutePath(), ProgressDialog.LOG);
 									}
+									
+									//TODO clean meatadata from unneccessary information
 																			
 									/**
 									 * Saving modified omexml tif comment into copied image
@@ -1466,7 +1506,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	 */
 	private Node getImageNodeWithID_OPERAMETADATA(NodeList imageNodes, String id) {
 		for(int n = 0; n < imageNodes.getLength(); n++) {
-			if(getFirstNodeWithName(imageNodes.item(n).getChildNodes(),"id").getNodeValue().equals(id)){
+			if(getFirstNodeWithName(imageNodes.item(n).getChildNodes(),"id").getTextContent().equals(id)){
 				return imageNodes.item(n);
 			}
 		}
