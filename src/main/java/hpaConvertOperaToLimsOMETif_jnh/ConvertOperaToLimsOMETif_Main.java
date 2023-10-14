@@ -146,9 +146,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 
 	// -----------------define params for Dialog-----------------
 	int tasks = 1;
-	boolean logXMLProcessing = false;
-	boolean logDetectedOriginalMetadata = false;
-	boolean logWholeOMEXMLComments = false;
+	boolean logXMLProcessing = true;
+	boolean logDetectedOriginalMetadata = true;
+	boolean logWholeOMEXMLComments = true;
 	
 	boolean loadViaBioformats = true;
 	boolean extendOnly = false;
@@ -606,7 +606,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					
 					for(int channel = 0; channel < nChannels; channel++) {
 						for(int slices = 0; slices < nSlices; slices++) {
-							omeTifFileName = tempDir + outFilename + "_Z"+(slices+1)+"_C"+(channel+1)+".ome.tif";
+							omeTifFileName = tempDir + outFilename + "_Z"+(slices)+"_C"+(channel)+".ome.tif";
 							try {
 								/**
 								 * Open the tif file and extract the tif comment (= OME XML String)
@@ -732,7 +732,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									continue;	
 								}
 								
-								if(extendedLogging)	progress.notifyMessage("Fetched well coordinates: Column " + wellColumn + ", Row " + wellRow, ProgressDialog.LOG);
+								if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Fetched well coordinates: Column " + wellColumn + ", Row " + wellRow, ProgressDialog.LOG);
 
 								/**
 								 * Find image information in TiffData
