@@ -131,6 +131,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	
 	String outPath = "E:" + System.getProperty("file.separator") + System.getProperty("file.separator") + "OME Out"
 			+ System.getProperty("file.separator");
+	
+	String outputType [] = new String [] {"Separate z planes into individual image folders (LIMS style)","Separate fields of view into individual folders (canonical OME tif style)"};
+	String selectedOutputType = outputType [0];
+	
 	// -----------------define params for Dialog-----------------
 
 	@Override
@@ -175,15 +179,17 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		gd.setInsets(0, 0, 0);	gd.addNumericField("Horizontal distance between the centers of two neighbored wells (e.g., A1 to A2) [mm]",distanceBetweenNeighboredWellCentersXInMM,2);
 		gd.setInsets(0, 0, 0);	gd.addNumericField("Vertical distance between the centers of two neighbored wells (e.g., A1 to B1) [mm]",distanceBetweenNeighboredWellCentersYInMM,2);
 		
-		gd.setInsets(10,0,0);	gd.addMessage("Processing Settings", SubHeadingFont);		
+		gd.setInsets(10,0,0);	gd.addMessage("Processing Settings", SubHeadingFont);
 		gd.setInsets(0,0,0);	gd.addChoice("Image type", imageType, selectedImageType);
 		
 		gd.setInsets(10,0,0);	gd.addCheckbox("Crop image | new image width and height (px):", cropImage);
 		gd.setInsets(-23, 0, 0);	gd.addNumericField("",newImgLength,0);
-		
-		gd.setInsets(10,0,0);	gd.addStringField("Filepath to output file", outPath, 30);
-		gd.setInsets(0,0,0);	gd.addMessage("This path defines where outputfiles are stored.", InstructionsFont);
-		gd.setInsets(0,0,0);	gd.addMessage("Make sure this path does not contain similarly named files - the program will overwrite identically named files!.", InstructionsFont);
+
+		gd.setInsets(0,0,0);	gd.addStringField("Filepath to output directory", outPath, 30);
+		gd.setInsets(0,0,0);	gd.addMessage("This path defines where outputfiles will be stored.", InstructionsFont);
+		gd.setInsets(0,0,0);	gd.addMessage("Make sure this path does not contain identically named files - the program may overwrite them.", InstructionsFont);
+
+		gd.setInsets(0,0,0);	gd.addChoice("Output style", outputType, selectedOutputType);		
 				
 		gd.setInsets(10,0,0);	gd.addMessage("Logging settings (troubleshooting options)", SubHeadingFont);		
 		gd.setInsets(0,0,0);	gd.addCheckbox("Log transfer of metadata", logXMLProcessing);
@@ -208,6 +214,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		cropImage = gd.getNextBoolean();
 		newImgLength = (int) Math.round(gd.getNextNumber());
 		outPath = gd.getNextString();
+		selectedOutputType = gd.getNextChoice();
 		logXMLProcessing = gd.getNextBoolean();
 		logDetectedOriginalMetadata = gd.getNextBoolean();
 		logWholeOMEXMLComments = gd.getNextBoolean();
@@ -1103,8 +1110,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											}
 										}											
 									}
-									
-									
+																		
 									/**
 									 * 	Set excitation wavelength based on xml entry
 									 * 	<MainExcitationWavelength Unit="nm">640</MainExcitationWavelength>
@@ -1250,27 +1256,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								dateString = dateString.replace(".", "_");
 								dateString = dateString.replace("T", "_");
 								
-								
-								//TODO Replace the FileName attribute in the UUID under TiffData in the OME XML with names following this name convention
-								
-								
-								
 								/**
-								 * Retrieve new comment
-								 * */
-								comment = service.getOMEXML(meta);								
-								if(logWholeOMEXMLComments) {
-									progress.notifyMessage("Comment after adjustments:", ProgressDialog.LOG);
-									progress.notifyMessage(comment, ProgressDialog.LOG);
+								 * Create folder structure and file names for saving
+								 * */								
 									
-								}
-								
-								
-								/**
-								 * Create folder structure
-								 * */									
-									
-								// Generate a new unique directory to save the images									
+								// Generate a directory for each well, where images shall be saved						
 								String wellString = "";
 								try{
 									wellString = this.rowNumberToLetter(wellRow+1) + (wellColumn+1); 
@@ -1289,57 +1279,84 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											+ "\n" + out,
 											ProgressDialog.NOTIFICATION);
 								}
-//										
-								String saveDir = outPath + System.getProperty("file.separator") + wellString + System.getProperty("file.separator");									
-								File savingDirectory = new File(saveDir);
-								if(savingDirectory.exists()) {				
+//								
+								String wellDir = outPath + System.getProperty("file.separator") + wellString + System.getProperty("file.separator");									
+								File wellDirFile = new File(wellDir);
+								if(wellDirFile.exists()) {				
 									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
-											+ "Directory for the well already existed: " + savingDirectory.getAbsolutePath(), ProgressDialog.LOG);
+											+ "Directory for the well already existed: " + wellDirFile.getAbsolutePath(), ProgressDialog.LOG);
 								}else {
 									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
-											+ "Creating directory for the well to save files: " + savingDirectory.getAbsolutePath(), ProgressDialog.LOG);
-									savingDirectory.mkdir();
+											+ "Creating directory for the well to save files: " + wellDirFile.getAbsolutePath(), ProgressDialog.LOG);
+									wellDirFile.mkdir();
 								}
 								
-								// Create folder for the images and metadata
-								String saveName = outFilename + "_" + wellString + "_" + dateString;
+								// Create a unique folder for each image or field of view
+								String savingDir = wellDir + System.getProperty("file.separator") + outFilename + "_" + wellString + "_" + dateString;
+								if(selectedOutputType.equals(outputType [0])) {
+									// LIMS compatible output file structures = folder by focal plane
+									if(imageZ >= 10) {
+										savingDir += "_Z" + String.valueOf(imageZ);
+									}else {
+										savingDir += "_Z0" + String.valueOf(imageZ);
+									}
+								}else if(selectedOutputType.equals(outputType [1])) {
+									// More OME Tif compatible output file structures = folder by field of view, all focal planes in one folder
+									// No Z info added to folder name									
+								}
+								
+								File savingDirFile = new File(savingDir);
+								if(savingDirFile.exists()) {				
+									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
+											+ "Directory for the image already existed: " + savingDirFile.getAbsolutePath(), ProgressDialog.LOG);
+								}else {
+									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
+											+ "Creating directory for the image to save files: " + savingDirFile.getAbsolutePath(), ProgressDialog.LOG);
+									savingDirFile.mkdir();
+								}
+
+								// Create filename for the image								
+								String outImageName = outFilename + "_" + wellString + "_" + dateString;
 								if(imageZ >= 10) {
-									saveName += "_Z" + imageZ;
+									outImageName += "_Z" + String.valueOf(imageZ);
 								}else {
-									saveName += "_Z0" + imageZ;
+									outImageName += "_Z0" + String.valueOf(imageZ);
 								}
-								
-								String savePath = saveDir + System.getProperty("file.separator") + saveName + System.getProperty("file.separator"); 
-								savingDirectory = new File(savePath);
-								if(savingDirectory.exists()) {				
-									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
-											+ "Directory for the image already existed: " + savingDirectory.getAbsolutePath(), ProgressDialog.LOG);
-								}else {
-									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
-											+ "Creating directory for the image to save files: " + savingDirectory.getAbsolutePath(), ProgressDialog.LOG);
-									savingDirectory.mkdir();
-								}
-								
-								// Add details for saving the individual image.										
 								if(imageC >= 10) {
-									saveName += "_C" + imageC;
+									outImageName += "_C" + String.valueOf(imageC);
 								}else {
-									saveName += "_C0" + imageC;
+									outImageName += "_C0" + String.valueOf(imageC);
 								}
-								saveName += ".ome.tif";
+								outImageName += ".ome.tif";
+
+								if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
+										+ "Computed file name: " + savingDirFile.getAbsolutePath(), ProgressDialog.LOG);
+
+								/**
+								 * Replace the FileName attribute in the UUID under TiffData in the OME XML with names following this name convention TODO
+								 * */								
+									
 								
-								
-								// TODO Introduce mode in which images are not stored in folders by plane but all images are dumped into one folder per stack!
+
+								/**
+								 * Retrieve new comment
+								 * */
+								comment = service.getOMEXML(meta);								
+								if(logWholeOMEXMLComments) {
+									progress.notifyMessage("Comment after adjustments:", ProgressDialog.LOG);
+									progress.notifyMessage(comment, ProgressDialog.LOG);
+									
+								}
 								
 								/**
 								 * Copy the file to the new folder.
 								 * */								
 								{
 									File srcFile = new File(omeTifFileName);
-									File destFile = new File(savePath + saveName);
+									File destFile = new File(savingDir + System.getProperty("file.separator") + outImageName);
 									if(destFile.exists()) {
 										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
-												+ "There are identical images in the target folder. Did not overwrite the image!!" + savingDirectory.getAbsolutePath(), ProgressDialog.ERROR);
+												+ "There are identical images in the target folder. Did not overwrite the image!!" + wellDirFile.getAbsolutePath(), ProgressDialog.ERROR);
 										continue;
 									}
 									FileUtils.copyFile(srcFile, destFile, true);
@@ -1351,11 +1368,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 */
 								
 								//Copy metadata
-								File newMetadataFile = new File(savePath + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator") + "image.ome.xml");
+								File newMetadataFile = new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator") + "image.ome.xml");
 								if(newMetadataFile.exists()) {
 									if(extendedLogging)	progress.notifyMessage("Metadata existed already (" + newMetadataFile.getAbsolutePath() + ")", ProgressDialog.LOG);
 								}else {
-									new File(savePath + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator")).mkdirs();
+									new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator")).mkdirs();
 									FileUtils.copyFile(metaDataFile, newMetadataFile);
 									if(extendedLogging)	progress.notifyMessage("Saved meta data file (" + metaDataFile + ") as " + newMetadataFile.getAbsolutePath(), ProgressDialog.LOG);
 								}
@@ -1370,8 +1387,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								/**
 								 * Saving modified omexml tif comment into copied image
 								 * */
-							    TiffSaver saver = new TiffSaver(savePath + saveName);
-							    RandomAccessInputStream in = new RandomAccessInputStream(savePath + saveName);
+							    TiffSaver saver = new TiffSaver(savingDir + System.getProperty("file.separator") + outImageName);
+							    RandomAccessInputStream in = new RandomAccessInputStream(savingDir + System.getProperty("file.separator") + outImageName);
 							    try {
 									saver.overwriteComment(in, comment);
 								} catch (FormatException e) {
@@ -1388,8 +1405,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											ProgressDialog.ERROR);
 								}
 							    in.close();
-								progress.updateBarText("Saving " + savePath + saveName + " done!");
-								if(extendedLogging)	progress.notifyMessage("Saved " + savePath + saveName, ProgressDialog.LOG);
+								progress.updateBarText("Saving " + savingDir + System.getProperty("file.separator") + outImageName + " done!");
+								if(extendedLogging)	progress.notifyMessage("Saved " + savingDir + System.getProperty("file.separator") + outImageName, ProgressDialog.LOG);
 									
 							} catch (IOException e) {
 								String out = "";
