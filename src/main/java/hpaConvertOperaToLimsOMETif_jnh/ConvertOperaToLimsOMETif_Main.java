@@ -1,7 +1,5 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
-
-
 /** ===============================================================================
 * HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.0.1
 * 
@@ -785,7 +783,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								double newXInM, newYInM, newZInM;
 								for(int p = 0; p < meta.getPlaneCount(imageIndex); p++) {
 									/**
-									 * Calculate and modify X position
+									 * Calculate and modify X position TODO use OME Length to make sure the units fit!
 									 * */
 									newXInM = meta.getPlanePositionX(imageIndex, p).value().doubleValue();
 									newXInM = wellCenterXInMM / 1000.0 + newXInM;
@@ -797,7 +795,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									meta.setPlanePositionX(FormatTools.createLength(newXInM,UNITS.METER), imageIndex, p);
 									
 									/**
-									 * Calculate and modify Y position
+									 * Calculate and modify Y position TODO use OME Length to make sure the units fit!
 									 * */
 									newYInM = meta.getPlanePositionY(imageIndex, p).value().doubleValue();
 									newYInM = wellCenterYInMM / 1000.0 + newYInM;
