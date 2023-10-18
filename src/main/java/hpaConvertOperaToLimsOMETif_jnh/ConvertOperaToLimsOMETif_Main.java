@@ -376,13 +376,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 
 				ImagePlus imp = null;
 				
-				if(loadViaBioformats){
-//					NOTES FROM FIJI TODO
-//					imp = IJ.openImage("E:/CP/Data/20230412 Sperm OPERA test -/230412 hansen__2023-04-12T13_47_17-Measurement 1/Images/Index.idx.xml");
-//					IJ.run(imp, "OME-TIFF...", "save=[E:/CP/Data/20230412 Sperm OPERA test -/OME Out/File1 A1] write_each_z_section write_each_timepoint write_each_channel use");
-//					IJ.run(imp, "OME-TIFF...", "save=[E:/CP/Data/20230412 Sperm OPERA test -/OME Out/A1.ome.tif] write_each_z_section write_each_timepoint write_each_channel use compression=Uncompressed");
-//					imp = IJ.openImage("E:/CP/Data/20230412 Sperm OPERA test -/OME Out/A1_Z0_C0_T0.ome.tif");
-					
+				if(loadViaBioformats){					
 					try {
 						//bio format reader
 		   				bfOptions = new ImporterOptions();
@@ -428,8 +422,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 //					new WaitForUserDialog("checkRoi").show();
 					IJ.run(imp, "Crop", "");
 				}
-//					imp.show();
-//					new WaitForUserDialog("check cropped").show();
+//				imp.show();
+//				new WaitForUserDialog("check cropped").show();
 				
 				
 				/**
@@ -524,7 +518,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				Node imagesNode = metaDoc.getElementsByTagName("Images").item(0);
 				Node wellsNode = metaDoc.getElementsByTagName("Wells").item(0);
 				Node platesNode = metaDoc.getElementsByTagName("Plates").item(0);
-				
+								
 				/**
 				 * Exploring the number of plates
 				 */				
@@ -1086,7 +1080,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 */
 									int detectorId = meta.getDetectorCount(0);
 									{
-										Node tempNode = getFirstNodeWithName(channelImageNode.getChildNodes(), "CameraType"); // TODO
+										Node tempNode = getFirstNodeWithName(channelImageNode.getChildNodes(), "CameraType");
 										for(int dt = 0; dt < meta.getDetectorCount(0); dt++) {
 											if(meta.getDetectorModel(0, dt).equals(tempNode.getTextContent())) {
 												detectorId = dt;
@@ -1315,29 +1309,36 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									savingDirFile.mkdir();
 								}
 
-								// Create filename for the image								
-								String outImageName = outFilename + "_" + wellString + "_" + dateString;
-								if(imageZ >= 10) {
-									outImageName += "_Z" + String.valueOf(imageZ);
-								}else {
-									outImageName += "_Z0" + String.valueOf(imageZ);
-								}
-								if(imageC >= 10) {
-									outImageName += "_C" + String.valueOf(imageC);
-								}else {
-									outImageName += "_C0" + String.valueOf(imageC);
-								}
-								outImageName += ".ome.tif";
-
+								// Create filename for the image	
+								String outImageName = getOutputImageName(outFilename, wellString, dateString, imageZ, imageC);
 								if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
-										+ "Computed file name: " + savingDirFile.getAbsolutePath(), ProgressDialog.LOG);
+										+ "Computed file name: " + outImageName, ProgressDialog.LOG);
 
 								/**
-								 * Replace the FileName attribute in the UUID under TiffData in the OME XML with names following this name convention TODO
-								 * */								
-									
+								 * Replace the FileName attribute in the UUID under TiffData in the OME XML with names following the nametypes applied here
+								 * */		
+								{
+									String tempName;
+									int tempZ, tempC, tempT;
+									for(int td = 0; td < meta.getTiffDataCount(imageIndex); td++) {										
+										tempC = meta.getTiffDataFirstC(imageIndex, td).getValue();
+										tempT = meta.getTiffDataFirstT(imageIndex, td).getValue();
+										tempZ = meta.getTiffDataFirstZ(imageIndex, td).getValue();
+																				
+										tempName = getOutputImageName(outFilename, wellString, dateString, tempZ, tempC);
+										
+										meta.setUUIDFileName(tempName, imageIndex, td);
+										
+										if(extendedLogging) progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath 
+												+ " , Renaming [" 
+												+ (outFilename + "_Z"+(slice)+"_C"+(channel)+".ome.tif") 
+												+ "] to ["
+												+ meta.getUUIDFileName(imageIndex, td)
+												+ "]."
+												, ProgressDialog.LOG);
+									}
+								}
 								
-
 								/**
 								 * Retrieve new comment
 								 * */
@@ -1668,6 +1669,35 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	private String rowNumberToLetter(int number) {
 		if(number > 26 || number < 1) throw new IndexOutOfBoundsException();		
 		return String.valueOf((char)(number + 64));
+	}
+	
+	/*** 
+	 * @param originalFilename: the base filename
+	 * @param wellString: the String refering to the well, to be added to the name - enter empty String if should not be added
+	 * @param dateString: the String refering to the date, to be added to the name - enter empty String if should not be added
+	 * @param theZ: Focal plane (Z) position as an index, >=0 
+	 * @param theC: Channel position as an index, >=0
+	 * @return the filename to be used for the output file, as a String
+	 */
+			
+	private String getOutputImageName(String originalFilename, String wellString, String dateString, int theZ, int theC) {
+		String outImageName = originalFilename;
+		if(wellString.length()>0) outImageName += "_" + wellString;
+		if(dateString.length()>0) outImageName += "_" + dateString;
+		
+		if(theZ >= 10) {
+			outImageName += "_Z" + String.valueOf(theZ);
+		}else {
+			outImageName += "_Z0" + String.valueOf(theZ);
+		}
+		if(theC >= 10) {
+			outImageName += "_C" + String.valueOf(theC);
+		}else {
+			outImageName += "_C0" + String.valueOf(theC);
+		}
+		outImageName += ".ome.tif";
+		
+		return outImageName;
 	}
 	
 }// end main class
