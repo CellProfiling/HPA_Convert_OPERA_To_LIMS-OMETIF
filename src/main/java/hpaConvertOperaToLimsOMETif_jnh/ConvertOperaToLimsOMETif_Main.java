@@ -119,9 +119,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 
 	// -----------------define params for Dialog-----------------
 	int tasks = 1;
-	boolean extendedLogging = true;
-	boolean logInitialFileScreening = true;
-	boolean logWholeOMEXMLComments = true;
+	boolean extendedLogging = false;
+	boolean logInitialFileScreening = false;
+	boolean logWholeOMEXMLComments = false;
 	
 	boolean loadViaBioformats = true;
 	boolean extendOnly = false;
