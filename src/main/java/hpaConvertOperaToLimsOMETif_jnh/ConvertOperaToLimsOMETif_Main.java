@@ -145,6 +145,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	String selectedOutputType = outputType [0];
 	
 	// -----------------define params for Dialog-----------------
+	
+	// Developer variables
+	static final boolean LOGPOSITIONCONVERSIONFORDIAGNOSIS = false;// This fixed variable is just used when working on the code and to retrieve certain log output only
 
 	@Override
 	public void run(String arg) {
@@ -786,24 +789,26 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * Calculate and modify X position
 									 * Note: in the original metadata the positions are saved as micron values, but the unit indicates is reference frame and thus wrong. Need to correct that.
 									 * */
-									newXInM = meta.getPlanePositionX(imageIndex, p).value().doubleValue();
+									newXInM = meta.getPlanePositionX(imageIndex, p).value().doubleValue() / 1000.0 / 1000.0;
 									newXInM = wellCenterXInMM / 1000.0 + newXInM;
 
-									if(extendedLogging)	progress.notifyMessage("Plane " + p + "(Original X coordinate: " + meta.getPlanePositionX(imageIndex, p).value().doubleValue() 
+									if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p + "(Original X coordinate: " + meta.getPlanePositionX(imageIndex, p).value().doubleValue() 
 											+ " " + meta.getPlanePositionX(imageIndex, p).unit().getSymbol() 
+											+ "; well center: " + wellCenterXInMM + " mm"
 											+ ") will get X coordinate " + newXInM + " m", ProgressDialog.LOG);
 
 									meta.setPlanePositionX(FormatTools.createLength(newXInM,UNITS.METER), imageIndex, p);
 									
 									/**
 									 * Calculate and modify Y position
-									 * Note: in the original metadata the positions are saved as micron values, but the unit indicates is reference frame and thus wrong. Need to correct that.
+									 * Note: in the original metadata the positions are saved as micron values, but the unit indicates is reference frame and thus wrong. Need to correct that to reach meter.
 									 * */
-									newYInM = meta.getPlanePositionY(imageIndex, p).value().doubleValue();
+									newYInM = meta.getPlanePositionY(imageIndex, p).value().doubleValue() / 1000.0 / 1000.0; 
 									newYInM = wellCenterYInMM / 1000.0 + newYInM;
 
-									if(extendedLogging)	progress.notifyMessage("Plane " + p + "(Original Y coordinate: " + meta.getPlanePositionY(imageIndex, p).value().doubleValue() 
-											+ " " + meta.getPlanePositionY(imageIndex, p).unit().getSymbol() 
+									if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p + "(Original Y coordinate: " + meta.getPlanePositionY(imageIndex, p).value().doubleValue() 
+											+ " " + meta.getPlanePositionY(imageIndex, p).unit().getSymbol()  
+											+ "; well center: " + wellCenterYInMM + " mm"
 											+ ") will get Y coordinate " + newYInM + " m", ProgressDialog.LOG);
 
 									meta.setPlanePositionY(FormatTools.createLength(newYInM,UNITS.METER), imageIndex, p);
@@ -814,7 +819,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * */
 									newZInM = meta.getPlanePositionZ(imageIndex, p).value().doubleValue() / 1000 / 1000;
 
-									if(extendedLogging)	progress.notifyMessage("Plane " + p + "(Original Z coordinate: " + meta.getPlanePositionZ(imageIndex, p).value().doubleValue() 
+									if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p + "(Original Z coordinate: " + meta.getPlanePositionZ(imageIndex, p).value().doubleValue() 
 											+ " " + meta.getPlanePositionZ(imageIndex, p).unit().getSymbol() 
 											+ ") will get Z coordinate " + newZInM + " m", ProgressDialog.LOG);
 
@@ -874,7 +879,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 													+ val2Str
 													, ProgressDialog.ERROR);
 											continue;
-										}else if(extendedLogging) {
+										}else if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Z location in tiff metadata matched in OPERA XML to the image with reference " 
 													+ imageLabelOPERA + "!"
 													+ " XML metadata z value: "
@@ -911,7 +916,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
 									
 									if(val1Str.equals(val2Str)) {
-										if(extendedLogging) {
+										if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Confirmed that physical size X matches metadata!", ProgressDialog.LOG);
 										}
 									}else {
@@ -955,7 +960,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
 									
 									if(val1Str.equals(val2Str)) {
-										if(extendedLogging) {
+										if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Confirmed that physical size Y matches metadata!", ProgressDialog.LOG);
 										}
 									}else {
