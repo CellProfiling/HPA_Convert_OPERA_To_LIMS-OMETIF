@@ -55,7 +55,12 @@ FIJI is open-source, freely available software that can be downloaded [here](htt
 On Mac OS, do not place the ImageJ / FIJI application into the *Applications* folder. Instead place it somewhere else than in the *Applications* folder, i.e. to the *desktop* or the *documents* directory. Thereby you can avoid a collision with a security feature by Mac OS, that might otherwise trigger software failures. If Mac OS does not allow you to launch FIJI by clicking the FIJI.app directory due to security concerns, run FIJI by right click (or holding option while clicking) to open more options for the file and click "open".
 
 #### Installing the *HPA_Convert_OPERA_To_LIMS-OMETIF* FIJI plugin
-- Download the .jar file from the latest software release listed on the [releases page in this repository](https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/releases). 
+- Download the .jar file from the latest software release listed on the [releases page in this repository](https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/releases).
+<p align="center">
+   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/79762215-e545-404f-b435-42840e310499" width=500>
+</p>
+
+
 - Launch ImageJ and install the plugin by drag and drop of the downloaded .jar file into the ImageJ window (red marked region in the screenshot below):
 <p align="center">
    <img src="https://user-images.githubusercontent.com/27991883/201358020-c3685947-b5d8-4127-88ec-ce9b4ddf0e56.png" width=500>
