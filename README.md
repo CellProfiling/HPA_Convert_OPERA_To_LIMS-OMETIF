@@ -149,4 +149,4 @@ Detailed message:
 
 ---
 
-(c) J.N. Hansen, Cell Profiling group
+(c) 2023 J.N. Hansen, Cell Profiling group
