@@ -34,6 +34,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.LinkedList;
 import java.util.Locale;
 
 //For XML support
@@ -148,6 +149,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	
 	// Developer variables
 	static final boolean LOGPOSITIONCONVERSIONFORDIAGNOSIS = false;// This fixed variable is just used when working on the code and to retrieve certain log output only
+	static final boolean LOGZDISTFINDING = false;// This fixed variable is just used when working on the code and to retrieve certain log output only
 
 	@Override
 	public void run(String arg) {
@@ -384,102 +386,6 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			running: while (continueProcessing) {
 				progress.updateBarText("in progress...");
 
-				ImagePlus imp = null;
-				
-				if(loadViaBioformats){					
-					try {
-						//bio format reader
-		   				bfOptions = new ImporterOptions();
-		   				bfOptions.setId(""+dir[task]+ System.getProperty("file.separator") + name[task]+"");
-		   				bfOptions.setVirtual(false);
-		   				bfOptions.setAutoscale(true);
-		   				bfOptions.setColorMode(ImporterOptions.COLOR_MODE_COMPOSITE);
-		   				for(int i = 0; i < totSeries[task]; i++) {
-		   					if(i==series[task]) {
-		   						bfOptions.setSeriesOn(i, true);
-		   					}else {
-		   						bfOptions.setSeriesOn(i, false);
-		   					}
-		   				}
-		   				ImagePlus [] imps = BF.openImagePlus(bfOptions);
-//		   				IJ.run("Bio-Formats", "open=[" +dir[task] + name[task]
-//		   						+ "] autoscale color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
-		   				imp = imps[0];	
-		   				imp.setDisplayMode(IJ.COMPOSITE);
-						
-					} catch (Exception e) {
-						String out = "";
-						for (int err = 0; err < e.getStackTrace().length; err++) {
-							out += " \n " + e.getStackTrace()[err].toString();
-						}
-						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process "
-								+ series[task] + " - Error " + e.getCause() + " - Detailed message:\n" + out,
-								ProgressDialog.ERROR);
-						break running;
-					}
-				}else {
-					progress.notifyMessage("Task " + task + ": Conversion outside of bioformats readable files is not implemented.",
-							ProgressDialog.ERROR);
-				}
-
-				//Crop image to user defined size
-				if(cropImage) {					
-					imp.setRoi((int)((double)(imp.getWidth() - newImgLength)/2.0),
-							(int)((double)(imp.getHeight() - newImgLength)/2.0),
-							newImgLength,
-							newImgLength);
-//					imp.show();
-//					new WaitForUserDialog("checkRoi").show();
-					IJ.run(imp, "Crop", "");
-				}
-//				imp.show();
-//				new WaitForUserDialog("check cropped").show();
-				
-				
-				/**
-				 * Extract information from image needed for later tif extension					 * 
-				 */
-				nChannels = imp.getNChannels();
-				nSlices = imp.getNSlices();
-				
-				
-				/**
-				 * Create filename for the output files
-				 * Example filename: Index.idx.xml
-				 * Example directory: \E:\CP\Data\20230412 Sperm OPERA test -\230412 hansen__2023-04-12T13_47_17-Measurement 1\Images 
-				 * Example series name: Series_90: Well 10, Field 9: 2160 x 2160; 25 planes
-				 */
-				
-				String orDirName = dir [task].substring(0,dir [task].lastIndexOf(System.getProperty("file.separator")));
-				orDirName = orDirName.substring(0,orDirName.lastIndexOf(System.getProperty("file.separator")));
-				orDirName = orDirName.substring(orDirName.lastIndexOf(System.getProperty("file.separator"))+1);
-
-				String outFilename = orDirName + "_" + (series[task]+1);
-				
-				if(extendedLogging) {
-					progress.notifyMessage("Retrieved original dir name: " + orDirName, ProgressDialog.LOG);
-					
-				}
-				
-				/**
-				 * Create a temporary file repository and write the files into an OME-TIF format, output images will be called <outFilename>_Z2_C4.ome
-				 */
-				String tempDir = outPath + System.getProperty("file.separator") + "temp_" + task + "" + System.getProperty("file.separator");
-				new File(tempDir).mkdirs();
-				IJ.run(imp, "OME-TIFF...", "save=[" + tempDir + outFilename + ".ome.tif] write_each_z_section write_each_channel use export compression=Uncompressed");
-				
-				/***
-				 * Close the image
-				 */
-				try {
-					imp.changes = false;
-					imp.close();						
-				} catch (Exception e) {
-					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": No image could be loaded... ",
-							ProgressDialog.ERROR);
-					break running;
-				}
-								
 				/**
 				 * Import the raw metadata XML file and generate document to read from it
 				 * 
@@ -565,7 +471,244 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 						
 					}
 				}			
+				
+				/***
+				 * Find the plane step size by scanning the images.
+				 */
+				double zStepSizeInMicronAcrossWholeOPERAFile = 0.0;
+				{
+					Node tempZNode;
+					double tempAbsZ;
+					String previousPlaneImageID = "", currentPlaneImageID = "";
+					Length previousPlaneAbsZ = null, currentPlaneAbsZ;
+					Unit<Length> unitForComparison = UNITS.MICROMETER, currentPlaneAbsZUnit;
 					
+					LinkedList<Double> observedZValues = new LinkedList<Double>();
+					LinkedList<Integer> observedZValueOccurences = new LinkedList<Integer>();
+					
+					screening: for(int img = 0; img < imagesNode.getChildNodes().getLength(); img++){
+						if(!imagesNode.getChildNodes().item(img).hasChildNodes()) {
+							continue;
+						}
+						try {
+							currentPlaneImageID = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "id").getTextContent();
+							if(!currentPlaneImageID.endsWith("R1")) continue; // Only consider first channels for extracting z information
+														
+							tempZNode = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "AbsPositionZ");
+							currentPlaneAbsZUnit = getLengthUnitFromNodeAttribute(tempZNode);
+							currentPlaneAbsZ = new Length (Double.parseDouble(tempZNode.getTextContent()), currentPlaneAbsZUnit);
+							
+							if(previousPlaneImageID.equals("")) {
+								previousPlaneImageID = currentPlaneImageID;
+								previousPlaneAbsZ = currentPlaneAbsZ;
+								continue screening;
+							}else if(Integer.parseInt(currentPlaneImageID.substring(currentPlaneImageID.lastIndexOf("P")+1,currentPlaneImageID.lastIndexOf("R"))) == Integer.parseInt(previousPlaneImageID.substring(previousPlaneImageID.lastIndexOf("P")+1,previousPlaneImageID.lastIndexOf("R")))+1) {
+								//This condition is met only if the plane is a follow up plane of the previous stored plane
+								//Now we verify that the remaining identifiers match and if so we create a z value
+								if(currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(previousPlaneImageID.substring(0,previousPlaneImageID.lastIndexOf("P")))) {
+									tempAbsZ = currentPlaneAbsZ.value(unitForComparison).doubleValue() - previousPlaneAbsZ.value(unitForComparison).doubleValue();
+									tempAbsZ = Double.parseDouble(String.format("%." + String.valueOf(2) + "g%n", tempAbsZ));
+									if(tempAbsZ < 0) tempAbsZ *= -1.0;
+									for(int zV = 0; zV < observedZValues.size();zV++) {
+										if(observedZValues.get(zV) == tempAbsZ) {
+											observedZValueOccurences.set(zV,observedZValueOccurences.get(zV)+1);
+											previousPlaneImageID = currentPlaneImageID;
+											previousPlaneAbsZ = currentPlaneAbsZ;
+											continue screening;
+										}
+									}
+									observedZValues.add(tempAbsZ);
+									observedZValueOccurences.add(1);
+									
+									if(extendedLogging || LOGZDISTFINDING) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Added a calculated ZValue (" + observedZValues
+												+ ") based on comparing the AbsPositionZ of "
+												+ previousPlaneImageID
+												+ " (Z value of Length object: "
+												+ previousPlaneAbsZ.value(unitForComparison)
+												+ " " 
+												+ unitForComparison.getSymbol()
+												+ ") and "
+												+ currentPlaneImageID
+												+ "(Z text: "
+												+ tempZNode.getTextContent()
+												+ " " 
+												+ currentPlaneAbsZUnit.getSymbol()
+												+ "). "
+												,
+												ProgressDialog.LOG);
+									}
+									previousPlaneImageID = currentPlaneImageID;
+									previousPlaneAbsZ = currentPlaneAbsZ;
+									continue screening;
+								}else {
+									previousPlaneImageID = currentPlaneImageID;
+									previousPlaneAbsZ = currentPlaneAbsZ;
+									continue screening;
+								}
+							}else {
+								previousPlaneImageID = currentPlaneImageID;
+								previousPlaneAbsZ = currentPlaneAbsZ;
+								continue screening;
+							}							
+						}catch(Exception e) {
+							String out = "";
+							for (int err = 0; err < e.getStackTrace().length; err++) {
+								out += " \n " + e.getStackTrace()[err].toString();
+							}
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not find Z information in image node " 
+									+ img 
+									+ ". Node name: "
+									+ imagesNode.getChildNodes().item(img).getNodeName()
+									+ ". Node value: "
+									+ imagesNode.getChildNodes().item(img).getNodeValue()
+									+ ". Error " + e.getCause() + " - Detailed message:\n" + out,
+									ProgressDialog.ERROR);
+							continue screening;
+						}						
+					}
+					
+					/**
+					 * Checking the determined Z values
+					 */
+					if(observedZValues.size() > 1) {
+						int tempCt = 0;
+						for(int i = 0; i < observedZValues.size(); i++) {
+							if(observedZValueOccurences.get(i) > tempCt) {
+								tempCt = observedZValueOccurences.get(i);
+								zStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(i);
+							}
+						}
+						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": There are images with different Z spacings available in this OPERA output file: " 
+								+ observedZValues 
+								+ " with the observed frequencies of " 
+								+ observedZValueOccurences 
+								+ "."
+								+ "This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
+								+ "This program will save the most frequent observed Z step size ("
+								+ zStepSizeInMicronAcrossWholeOPERAFile
+								+ " micron) in the OPERA file as a Z calibration value for all converted images.",
+								ProgressDialog.NOTIFICATION);
+					}else {
+						zStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(0);
+						observedZValues = null;
+						if(extendedLogging || LOGZDISTFINDING) {
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Found Z step size in metadata and will set it as image calibration - value " + observedZValues + ".",
+									ProgressDialog.LOG);
+						}
+					}
+				}				
+				System.gc();
+				
+				/***
+				 * Open the image and save it as OME TIF in a temp folder
+				 */				
+				ImagePlus imp = null;				
+				if(loadViaBioformats){					
+					try {
+						//bio format reader
+		   				bfOptions = new ImporterOptions();
+		   				bfOptions.setId(""+dir[task]+ System.getProperty("file.separator") + name[task]+"");
+		   				bfOptions.setVirtual(false);
+		   				bfOptions.setAutoscale(true);
+		   				bfOptions.setColorMode(ImporterOptions.COLOR_MODE_COMPOSITE);
+		   				for(int i = 0; i < totSeries[task]; i++) {
+		   					if(i==series[task]) {
+		   						bfOptions.setSeriesOn(i, true);
+		   					}else {
+		   						bfOptions.setSeriesOn(i, false);
+		   					}
+		   				}
+		   				ImagePlus [] imps = BF.openImagePlus(bfOptions);
+//		   				IJ.run("Bio-Formats", "open=[" +dir[task] + name[task]
+//		   						+ "] autoscale color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
+		   				imp = imps[0];	
+		   				imp.setDisplayMode(IJ.COMPOSITE);
+						
+					} catch (Exception e) {
+						String out = "";
+						for (int err = 0; err < e.getStackTrace().length; err++) {
+							out += " \n " + e.getStackTrace()[err].toString();
+						}
+						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process "
+								+ series[task] + " - Error " + e.getCause() + " - Detailed message:\n" + out,
+								ProgressDialog.ERROR);
+						break running;
+					}
+				}else {
+					progress.notifyMessage("Task " + task + ": Conversion outside of bioformats readable files is not implemented.",
+							ProgressDialog.ERROR);
+				}
+
+				// Set Z calibration information since not read correctly for OPERA files
+				if(zStepSizeInMicronAcrossWholeOPERAFile > 0.0 && zStepSizeInMicronAcrossWholeOPERAFile != imp.getCalibration().pixelDepth) {
+					if(extendedLogging || LOGZDISTFINDING) {
+						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": "
+								+ "Corrected voxel depth in image calibration settings - new value is " + zStepSizeInMicronAcrossWholeOPERAFile 
+								+ " whereas old value was " + imp.getCalibration().pixelDepth + " " + imp.getCalibration().getZUnit() + ".",
+								ProgressDialog.LOG);
+					}
+					imp.getCalibration().pixelDepth = zStepSizeInMicronAcrossWholeOPERAFile;
+					imp.getCalibration().setZUnit("micron");					
+				}
+				
+				//Crop image to user defined size
+				if(cropImage) {					
+					imp.setRoi((int)((double)(imp.getWidth() - newImgLength)/2.0),
+							(int)((double)(imp.getHeight() - newImgLength)/2.0),
+							newImgLength,
+							newImgLength);
+//					imp.show();
+//					new WaitForUserDialog("checkRoi").show();
+					IJ.run(imp, "Crop", "");
+				}
+//				imp.show();
+//				new WaitForUserDialog("check cropped").show();
+				
+				
+				/**
+				 * Extract information from image needed for later tif extension					 * 
+				 */
+				nChannels = imp.getNChannels();
+				nSlices = imp.getNSlices();
+								
+				/**
+				 * Create filename for the output files
+				 * Example filename: Index.idx.xml
+				 * Example directory: \E:\CP\Data\20230412 Sperm OPERA test -\230412 hansen__2023-04-12T13_47_17-Measurement 1\Images 
+				 * Example series name: Series_90: Well 10, Field 9: 2160 x 2160; 25 planes
+				 */
+				
+				String orDirName = dir [task].substring(0,dir [task].lastIndexOf(System.getProperty("file.separator")));
+				orDirName = orDirName.substring(0,orDirName.lastIndexOf(System.getProperty("file.separator")));
+				orDirName = orDirName.substring(orDirName.lastIndexOf(System.getProperty("file.separator"))+1);
+
+				String outFilename = orDirName + "_" + (series[task]+1);
+				
+				if(extendedLogging) {
+					progress.notifyMessage("Retrieved original dir name: " + orDirName, ProgressDialog.LOG);
+					
+				}
+				
+				/**
+				 * Create a temporary file repository and write the files into an OME-TIF format, output images will be called <outFilename>_Z2_C4.ome
+				 */
+				String tempDir = outPath + System.getProperty("file.separator") + "temp_" + task + "" + System.getProperty("file.separator");
+				new File(tempDir).mkdirs();
+				IJ.run(imp, "OME-TIFF...", "save=[" + tempDir + outFilename + ".ome.tif] write_each_z_section write_each_channel use export compression=Uncompressed");
+				
+				/***
+				 * Close the image
+				 */
+				try {
+					imp.changes = false;
+					imp.close();						
+				} catch (Exception e) {
+					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": No image could be loaded... ",
+							ProgressDialog.ERROR);
+					break running;
+				}				
+				
 				/*
 				 * Reopen each written file and resave it 
 				*/
@@ -991,6 +1134,183 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										meta.setPixelsPhysicalSizeY(tempLength, imageIndex);
 									}
 								}
+								
+								/**
+								 * Verify and eventually correct the PhysicalSizeZ parameter in the ome.tif and in the image calibration
+								 */
+								{
+									Node tempZNode;
+									double tempAbsZValue;
+									String previousPlaneImageID = "", currentPlaneImageID = "";
+									Length previousPlaneAbsZ = null, currentPlaneAbsZ;
+									Unit<Length> unitForComparingValues = UNITS.MICROMETER, currentPlaneAbsZUnit;
+									
+									LinkedList<Double> observedZValues = new LinkedList<Double>();
+									LinkedList<Integer> observedZValueOccurences = new LinkedList<Integer>();
+									
+									screening: for(int img = 0; img < imagesNode.getChildNodes().getLength(); img++){
+										if(!imagesNode.getChildNodes().item(img).hasChildNodes()) {
+											continue;
+										}
+										try {
+											currentPlaneImageID = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "id").getTextContent();
+											// Only consider first channels for extracting z information, thus skip all nodes related to other channels:
+											if(!currentPlaneImageID.endsWith("R1")) continue;
+											 // Skip nodes not belonging to this image:
+											if(!currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P")))) continue;
+																		
+											tempZNode = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "AbsPositionZ");
+											currentPlaneAbsZUnit = getLengthUnitFromNodeAttribute(tempZNode);
+											currentPlaneAbsZ = new Length (Double.parseDouble(tempZNode.getTextContent()), currentPlaneAbsZUnit);
+											
+											if(previousPlaneImageID.equals("")) {
+												previousPlaneImageID = currentPlaneImageID;
+												previousPlaneAbsZ = currentPlaneAbsZ;
+												continue screening;
+											}else if(Integer.parseInt(currentPlaneImageID.substring(currentPlaneImageID.lastIndexOf("P")+1,currentPlaneImageID.lastIndexOf("R"))) == Integer.parseInt(previousPlaneImageID.substring(previousPlaneImageID.lastIndexOf("P")+1,previousPlaneImageID.lastIndexOf("R")))+1) {
+												//This condition is met only if the plane is a follow up plane of the previous stored plane
+												//Now we verify that the remaining identifiers match and if so we create a z value
+												if(currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(previousPlaneImageID.substring(0,previousPlaneImageID.lastIndexOf("P")))) {
+													tempAbsZValue = currentPlaneAbsZ.value(unitForComparingValues).doubleValue() - previousPlaneAbsZ.value(unitForComparingValues).doubleValue();
+													tempAbsZValue = Double.parseDouble(String.format("%." + String.valueOf(2) + "g%n", tempAbsZValue));
+													if(tempAbsZValue < 0) tempAbsZValue *= -1.0;
+													for(int zV = 0; zV < observedZValues.size();zV++) {
+														if(observedZValues.get(zV) == tempAbsZValue) {
+															observedZValueOccurences.set(zV,observedZValueOccurences.get(zV)+1);
+															previousPlaneImageID = currentPlaneImageID;
+															previousPlaneAbsZ = currentPlaneAbsZ;
+															continue screening;
+														}
+													}
+													observedZValues.add(tempAbsZValue);
+													observedZValueOccurences.add(1);
+													
+													if(extendedLogging || LOGZDISTFINDING) {
+														progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
+																+ imageLabelOPERA
+																+ ": Added a calculated ZValue (" + observedZValues
+																+ ") based on comparing the AbsPositionZ of "
+																+ previousPlaneImageID
+																+ " (Z value of Length object: "
+																+ previousPlaneAbsZ.value(unitForComparingValues)
+																+ " " 
+																+ unitForComparingValues.getSymbol()
+																+ ") and "
+																+ currentPlaneImageID
+																+ "(Z text: "
+																+ tempZNode.getTextContent()
+																+ " " 
+																+ currentPlaneAbsZUnit.getSymbol()
+																+ "). "
+																,
+																ProgressDialog.LOG);
+													}
+													previousPlaneImageID = currentPlaneImageID;
+													previousPlaneAbsZ = currentPlaneAbsZ;
+													continue screening;
+												}else {
+													previousPlaneImageID = currentPlaneImageID;
+													previousPlaneAbsZ = currentPlaneAbsZ;
+													continue screening;
+												}
+											}else {
+												previousPlaneImageID = currentPlaneImageID;
+												previousPlaneAbsZ = currentPlaneAbsZ;
+												continue screening;
+											}							
+										}catch(Exception e) {
+											String out = "";
+											for (int err = 0; err < e.getStackTrace().length; err++) {
+												out += " \n " + e.getStackTrace()[err].toString();
+											}
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
+													+ imageLabelOPERA
+													+ ": Could not find Z information in image node " 
+													+ img 
+													+ " to determine Z information for the images starting with label"
+													+ imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"))
+													+ ". Node name: "
+													+ imagesNode.getChildNodes().item(img).getNodeName()
+													+ ". Node value: "
+													+ imagesNode.getChildNodes().item(img).getNodeValue()
+													+ ". Error " + e.getCause() + " - Detailed message:\n" + out,
+													ProgressDialog.ERROR);
+											continue screening;
+										}						
+									}
+									
+									/**
+									 * Checking the determined Z values
+									 */
+									double tempZStepSizeInMicron = 0.0;
+									if(observedZValues.size() > 1) {
+										int tempCt = 0;
+										for(int i = 0; i < observedZValues.size(); i++) {
+											if(observedZValueOccurences.get(i) > tempCt) {
+												tempCt = observedZValueOccurences.get(i);
+												tempZStepSizeInMicron = observedZValues.get(i);
+											}
+										}
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
+												+ imageLabelOPERA
+												+ ": There are images with different Z spacings available in this OPERA output file for all images starting with " 
+												+ imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"))
+												+ ". The following z steps were observed: "
+												+ observedZValues 
+												+ " with the observed frequencies of " 
+												+ observedZValueOccurences 
+												+ "."
+												+ "This program cannot guarantee accurate translation of Z step size information into the OME 'PixelsPhysicalSizeZ' parameter stored in the OME XML Metadata for this file."
+												+ "This program will save the most frequent observed Z step size ("
+												+ tempZStepSizeInMicron
+												+ " micron) as Physical Size Z.",
+												ProgressDialog.NOTIFICATION);
+									}else {
+										tempZStepSizeInMicron = observedZValues.get(0);
+										observedZValues = null;
+										observedZValueOccurences = null;
+										if(extendedLogging || LOGZDISTFINDING) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+													+ ", image with ID "
+													+ imageLabelOPERA
+													+ ": Found Z step size in metadata to compare to the OME 'PixelsPhysicalSizeZ' parameter in OME metadata - value " + tempZStepSizeInMicron + ".",
+													ProgressDialog.LOG);
+										}
+									}
+									
+									if(meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue() != tempZStepSizeInMicron) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+												+ ", image with ID "
+												+ imageLabelOPERA
+												+ ": OME 'PixelsPhysicalSizeZ' parameter in OME metadata ("
+												+ meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue()
+												+ " "
+												+ UNITS.MICROMETER.getSymbol()
+												+ ") was different compared to what this program read from the OPERA XML metadata ("
+												+ tempZStepSizeInMicron 
+												+ " " 
+												+ UNITS.MICROMETER.getSymbol()
+												+ "). Replacing the 'PixelsPhysicalSizeZ' value in OME metadata with " 
+												+ tempZStepSizeInMicron 
+												+ " " 
+												+ UNITS.MICROMETER.getSymbol()+ ".",
+												ProgressDialog.LOG);	
+										//Since we store the PhysicalSize parameteres generally in meter, convert to meter here, too:
+										meta.setPixelsPhysicalSizeZ(new Length(tempZStepSizeInMicron / 1000.0 / 1000.0,UNITS.METER), imageIndex);
+									}else if(!meta.getPixelsPhysicalSizeZ(imageIndex).unit().equals(UNITS.METER)) {
+										meta.setPixelsPhysicalSizeZ(new Length(meta.getPixelsPhysicalSizeZ(imageIndex).value(UNITS.METER),UNITS.METER), imageIndex);
+										if(extendedLogging || LOGZDISTFINDING) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+													+ ", image with ID "
+													+ imageLabelOPERA
+													+ ": Found unit for the OME value 'PixelsPhysicalSizeZ' to be other than meter - converted the value to METER: " 
+													+ meta.getPixelsPhysicalSizeZ(imageIndex) 
+													+ ".",
+													ProgressDialog.LOG);
+										}
+									}
+								}
+								
 																										
 								/**
 								 * Generate instrument in metadata, use following information
