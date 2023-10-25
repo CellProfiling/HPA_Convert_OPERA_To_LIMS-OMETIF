@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.0.1
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.0.2
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: September 11, 2023)
+* Date: September 11, 2023 (This Version: October 25, 2023)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -90,7 +90,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.0.1";
+	static final String PLUGINVERSION = "0.0.2";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -1329,6 +1329,17 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												+ meta.getMicroscopeModel(0)
 												+ ".", ProgressDialog.LOG);
 									}
+								}
+								{
+									/**
+									 *  Transferring the Microscope Serial Number
+									 *  OPERA files have no serial number and thus, we are using the InstrumentType as Serial Number
+									 *  <InstrumentType>Phenix</InstrumentType>
+									 */
+									meta.setMicroscopeSerialNumber(metaDoc.getElementsByTagName("InstrumentType").item(0).getTextContent(), 0);
+									if(selectedImageType.equals(imageType[0])) { // Input as OPERA Phenix has been selected, Revivity is the manufacturer of Opera Phenix
+										meta.setMicroscopeManufacturer("Revvity, Inc.", 0);
+									}								
 								}
 								
 								
