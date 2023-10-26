@@ -1337,7 +1337,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 *  <InstrumentType>Phenix</InstrumentType>
 									 */
 									meta.setMicroscopeSerialNumber(metaDoc.getElementsByTagName("InstrumentType").item(0).getTextContent(), 0);
-									if(selectedImageType.equals(imageType[0])) { // Input as OPERA Phenix has been selected, Revivity is the manufacturer of Opera Phenix
+									if(selectedImageType.equals(imageType[0])) { // Input as OPERA Phenix has been selected, Revvity is the manufacturer of Opera Phenix
 										meta.setMicroscopeManufacturer("Revvity, Inc.", 0);
 									}								
 								}
