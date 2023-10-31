@@ -83,6 +83,7 @@ import ome.units.quantity.Length;
 import ome.units.quantity.Time;
 import ome.units.unit.Unit;
 import ome.xml.model.enums.Binning;
+import ome.xml.model.enums.DetectorType;
 import ome.xml.model.enums.EnumerationException;
 import ome.xml.model.enums.IlluminationType;
 import ome.xml.model.enums.MicroscopeType;
@@ -761,7 +762,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								if(extendedLogging){
 									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + ". Fetched imageId: " + imageID + ".", ProgressDialog.LOG);
 								}
-								
+																
 								/**
 								 * Find the plate, well, and wellSample that the image is from.
 								 */
@@ -1348,7 +1349,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 * <ObjectiveNA Unit="">1.15</ObjectiveNA>	
 								 * <ObjectiveMagnification Unit="">63</ObjectiveMagnification>
 								 */
-								meta.setObjectiveID("Objective:0", 0, 0);
+								String objectiveID = "Objective:0";
+								meta.setObjectiveID(objectiveID, 0, 0);
+								// Now assign the objective to the image:
+								meta.setObjectiveSettingsID(objectiveID, imageIndex);
+								// From here one extend the settings for the objective
 								meta.setObjectiveLensNA(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getTextContent()),
 										0,0);
 								if(extendedLogging) {
@@ -1367,7 +1372,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											+ ") and stored as "
 											+ meta.getObjectiveNominalMagnification(0, 0)
 											+ ".", ProgressDialog.LOG);
-								}								
+								}
+								
+								
 								
 								/** Find out the well sample time from time stamps for individual planes
 								 *	<AbsTime>2023-09-14T14:50:58.43+02:00</AbsTime>
@@ -1503,9 +1510,26 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 														+ meta.getDetectorModel(0, detectorId)
 														+ ".", ProgressDialog.LOG);
 											}
-										}											
+										}
+										
+										// Now we check whether the detector has an ID setting and if not we create a new ID for it
+										try {
+											if(meta.getDetectorID(0, detectorId).equals(null) || meta.getDetectorID(0, detectorId).equals("")) {
+												meta.setDetectorID("Detector:"+detectorId, 0, detectorId);
+											}
+										}catch(NullPointerException e) {
+											meta.setDetectorID("Detector:"+detectorId, 0, detectorId);
+										}
+										
+										// We register the found detector also in the channel settings
+										meta.setDetectorSettingsID(meta.getDetectorID(0, detectorId), imageIndex, channelId);
+										
+										// We can assign the detector type for some known detector models
+										if(meta.getDetectorModel(0, detectorId).equals("AndorZylaCam")) {
+											meta.setDetectorType(DetectorType.fromString("CMOS"), 0, detectorId);
+										}
 									}
-																		
+									
 									/**
 									 * 	Set excitation wavelength based on xml entry
 									 * 	<MainExcitationWavelength Unit="nm">640</MainExcitationWavelength>
@@ -1651,6 +1675,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								dateString = dateString.replace(".", "_");
 								dateString = dateString.replace("T", "_");
 								
+
 								/**
 								 * Create folder structure and file names for saving
 								 * */								
@@ -1739,6 +1764,27 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												, ProgressDialog.LOG);
 									}
 								}
+								
+								/**
+								 * Inject notes into the image description that allow to trace back to where the image came from
+								 */
+								{
+									String imgDescription = "";
+//									imgDescription += "ImageCoordinates: x="
+//											+ "" 
+//											+ ", y="
+//											+ ""
+//											+ ", z="
+//											+ "";
+									imgDescription += "This OME Metadatafile was enriched based on an Index.idx.xml metadata file, with the help of the FIJI plugin '" + PLUGINNAME 
+											+ "' (Version: " + PLUGINVERSION 
+											+ ", more information at " 
+											+ "https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF)";
+									imgDescription += ";" + "Filename after output from plugin: '" + outImageName + "'";
+									meta.setImageDescription(imgDescription + ".", imageIndex);
+
+								}
+								
 								
 								/**
 								 * Retrieve new comment
