@@ -361,6 +361,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					IJ.log(e.getCause().getMessage());
 					e.printStackTrace();
 				}
+				System.gc();
 			}
 		}
 		
@@ -605,7 +606,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				 * Open the image and save it as OME TIF in a temp folder
 				 */				
 				ImagePlus imp = null;				
-				if(loadViaBioformats){					
+				if(loadViaBioformats){
 					try {
 						//bio format reader
 		   				bfOptions = new ImporterOptions();
@@ -636,6 +637,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								ProgressDialog.ERROR);
 						break running;
 					}
+					System.gc();
 				}else {
 					progress.notifyMessage("Task " + task + ": Conversion outside of bioformats readable files is not implemented.",
 							ProgressDialog.ERROR);
@@ -703,7 +705,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				 */
 				try {
 					imp.changes = false;
-					imp.close();						
+					imp.close();
+					System.gc();
 				} catch (Exception e) {
 					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": No image could be loaded... ",
 							ProgressDialog.ERROR);
