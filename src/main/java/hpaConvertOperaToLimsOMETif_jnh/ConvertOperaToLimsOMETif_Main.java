@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.0.2
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.0.3
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: October 25, 2023)
+* Date: September 11, 2023 (This Version: November 20, 2023)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -73,6 +73,7 @@ import loci.formats.ome.OMEXMLMetadata;
 import loci.formats.services.OMEXMLService;
 import loci.formats.tiff.TiffParser;
 import loci.plugins.BF;
+import loci.plugins.in.ImagePlusReader;
 import loci.plugins.in.ImportProcess;
 import loci.plugins.in.ImporterOptions;
 
@@ -91,7 +92,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.0.2";
+	static final String PLUGINVERSION = "0.0.3";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -279,6 +280,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				dir[task] = od.filesToOpen.get(task).getParent();
 				seriesName [task] = "NA";
 				if(logInitialFileScreening) {
+					IJ.log("Logging information for selected index files" + " (time: " + FullDateFormatter2.format(new Date()) + ")");
 					IJ.log("ORIGINAL: " + fullPath[task]);
 					IJ.log("name:" + name[task]);
 					IJ.log("dir:" + dir[task]);					
@@ -290,6 +292,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				return;
 			}
 			
+			ImportProcess process;
+			
 			for(int i = tasks-1; i >= 0; i--){
 				IJ.showProgress((tasks-i)/tasks);
 				try {
@@ -297,11 +301,32 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					bfOptions.setId(""+dir[i]+ System.getProperty("file.separator") + name[i]+"");
 					bfOptions.setVirtual(true);
 					bfOptions.setOpenAllSeries(true);
-					ImagePlus[] imps = BF.openImagePlus(bfOptions);
-					if(imps.length > 1) {
-						String [] nameTemp = new String [name.length+imps.length-1], 
-								dirTemp = new String [name.length+imps.length-1], 
-								seriesNameTemp = new String [name.length+imps.length-1];
+					bfOptions.setStackFormat(ImporterOptions.VIEW_NONE);
+															
+					if(logInitialFileScreening) {
+						IJ.log("Starting importer process for task " + i + ", time: " + FullDateFormatter2.format(new Date()) );
+					}
+					
+					process = new ImportProcess(bfOptions);
+					if (!process.execute()) {
+						IJ.error("Error when loading series information.");
+						return;
+					}
+
+					if(logInitialFileScreening) {
+						IJ.log("Importer process started for task " + i + ", time: " + FullDateFormatter2.format(new Date()));
+					}
+					
+					int newTasks = process.getSeriesCount();
+					
+					if(logInitialFileScreening) {
+						IJ.log("Fetched" + newTasks + " images for task " + i + ", time: " + FullDateFormatter2.format(new Date()));
+					}
+					
+					if(newTasks > 1) {
+						String [] nameTemp = new String [name.length+newTasks-1], 
+								dirTemp = new String [name.length+newTasks-1], 
+								seriesNameTemp = new String [name.length+newTasks-1];
 						int [] seriesTemp = new int [nameTemp.length],
 								totSeriesTemp = new int [nameTemp.length]; 
 						for(int j = 0; j < i; j++) {
@@ -312,19 +337,22 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							totSeriesTemp [j] = totSeries [j];
 							
 						}
-						for(int j = 0; j < imps.length; j++) {
+						for(int j = 0; j < newTasks; j++) {
 							nameTemp [i+j] = name [i]; 
 							dirTemp [i+j] = dir [i];
 							seriesTemp [i+j] = j;
-							seriesNameTemp [j] = getSeriesName(bfOptions, j);
-							totSeriesTemp [i+j] = imps.length;
+							seriesNameTemp [j] = process.getSeriesLabel(j);
+							totSeriesTemp [i+j] = newTasks;
+							if(logInitialFileScreening) {
+								IJ.log("Feteched name for series: " + j + " in task " + i + ": " + seriesNameTemp [j] + ", time: " + FullDateFormatter2.format(new Date()));
+							}
 						}
 						for(int j = i+1; j < name.length; j++) {
-							nameTemp [j+imps.length-1] = name [j]; 
-							dirTemp [j+imps.length-1] = dir [j];
-							seriesTemp [j+imps.length-1] = series [j];
-							seriesNameTemp [j+imps.length-1] = seriesName [j];
-							totSeriesTemp [j+imps.length-1] = totSeries [j];
+							nameTemp [j+newTasks-1] = name [j]; 
+							dirTemp [j+newTasks-1] = dir [j];
+							seriesTemp [j+newTasks-1] = series [j];
+							seriesNameTemp [j+newTasks-1] = seriesName [j];
+							totSeriesTemp [j+newTasks-1] = totSeries [j];
 						}
 						
 						//copy arrays
@@ -344,17 +372,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							totSeries [j] = totSeriesTemp [j];
 							
 							if(logInitialFileScreening) {
+								IJ.log("Logging loaded tasks here: "  + ", time: " + FullDateFormatter2.format(new Date()));
 								IJ.log("ORIGINAL: " + name[i] + ", " + dir [i] + ", " + fullPath[i]);
 								IJ.log("series: " + (series[j]+1) + " of " + totSeries[j] + " with name: " + seriesName[j]);
-								}
-							
-//							filesList += name[j] + "\t" + dir[j] + "\t" + series[j] + "\t" + totSeries[j] + "\n";
+							}							
 						}
-					}
-					
-					for(int j = imps.length-1; j>= 0; j--) {
-						imps[j].changes = false;
-						imps[j].close();
 					}
 				} catch (Exception e) {
 					IJ.log(e.getCause().getLocalizedMessage());
@@ -363,6 +385,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				}
 				System.gc();
 			}
+		}
+		
+		if(logInitialFileScreening) {
+			IJ.log("Task list has been finished, starting processing now."  + " Time: " + FullDateFormatter2.format(new Date()));
 		}
 		
 		// add progressDialog
@@ -383,7 +409,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		// -----------------------------PROCESS TASKS----------------------------------
 		// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
-		int nChannels, nSlices;	
+		int nChannels, nSlices;
 		for (int task = 0; task < tasks; task++) {
 			running: while (continueProcessing) {
 				progress.updateBarText("in progress...");
@@ -586,8 +612,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								+ " with the observed frequencies of " 
 								+ observedZValueOccurences 
 								+ "."
-								+ "This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
-								+ "This program will save the most frequent observed Z step size ("
+								+ " This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
+								+ " This program will save the most frequent observed Z step size ("
 								+ zStepSizeInMicronAcrossWholeOPERAFile
 								+ " micron) in the OPERA file as a Z calibration value for all converted images.",
 								ProgressDialog.NOTIFICATION);
@@ -620,13 +646,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		   					}else {
 		   						bfOptions.setSeriesOn(i, false);
 		   					}
-		   				}
-		   				ImagePlus [] imps = BF.openImagePlus(bfOptions);
-//		   				IJ.run("Bio-Formats", "open=[" +dir[task] + name[task]
-//		   						+ "] autoscale color_mode=Default rois_import=[ROI manager] view=Hyperstack stack_order=XYCZT");
-		   				imp = imps[0];	
-		   				imp.setDisplayMode(IJ.COMPOSITE);
-						
+		   				}		   				
+		   			    imp = BF.openImagePlus(bfOptions) [0];
+		   				imp.setDisplayMode(IJ.COMPOSITE);						
 					} catch (Exception e) {
 						String out = "";
 						for (int err = 0; err < e.getStackTrace().length; err++) {
@@ -995,7 +1017,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										}
 										
 										Node tempNode = getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsPositionZ");
-										Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsPositionZ"));									
+										Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(tempNode);									
 										if(!meta.getPlanePositionZ(imageIndex, p).unit().isConvertible(tempUnit)) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Plane " + p
 													+ " PROBLEM. The unit in the OME XML meta data is not convertible to the unit used for the Z position in the original metadata." 
@@ -1012,9 +1034,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
 										
 										if(!val1Str.equals(val2Str)) {
-											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Z location in tiff metadata did not match metadata of image with reference " 
-													+ imageLabelOPERA + "in OPERA Metadata XML!"
-													+ " XML metadata z value: "
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+													+ metadataFilePath + " - Z location in OME metadata did not match metadata of image with reference " 
+													+ imageLabelOPERA + "in OPERA Metadata XML. We need to correct the absolute Z position based on OPERA Metadata!"
+													+ " (XML metadata z value: "
 													+ val1
 													+ " OME z value: "
 													+ val2
@@ -1024,8 +1047,44 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 													+ val1Str
 													+ " and "
 													+ val2Str
-													, ProgressDialog.ERROR);
-											continue;
+													+ ")"
+													, ProgressDialog.LOG);
+											
+											meta.setPlanePositionZ(FormatTools.createLength(FormatTools.createLength(val1,tempUnit).value(UNITS.METER).doubleValue(),
+													UNITS.METER), imageIndex, p);
+											
+											//RECHECKING post writing:
+											val2 = meta.getPlanePositionZ(imageIndex, p).value(tempUnit).doubleValue();
+											val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
+											if(!val1Str.equals(val2Str)) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " rechecked post writing Z from XML and did still not match:"
+														+ " XML metadata z value: "
+														+ val1
+														+ " OME z value: "
+														+ val2
+														+ ", converted to "
+														+ digitsToCompare
+														+ " were "
+														+ val1Str
+														+ " and "
+														+ val2Str
+														, ProgressDialog.ERROR);
+											}else if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " rechecked post writing Z from XML:"
+														+ " XML metadata z value: "
+														+ val1
+														+ " OME z value: "
+														+ val2
+														+ ", converted to "
+														+ digitsToCompare
+														+ " were "
+														+ val1Str
+														+ " and "
+														+ val2Str
+														, ProgressDialog.ERROR);
+											}
 										}else if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Z location in tiff metadata matched in OPERA XML to the image with reference " 
 													+ imageLabelOPERA + "!"
@@ -1073,7 +1132,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												+ val1
 												+ " " 
 												+ tempUnit.getSymbol() 
-												+ " (Original entry"
+												+ " (Original entry "
 												+ meta.getPixelsPhysicalSizeX(imageIndex).value().doubleValue()
 												+ " "
 												+ meta.getPixelsPhysicalSizeX(imageIndex).unit().getSymbol()
@@ -1082,7 +1141,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												+ val2
 												+ " " 
 												+ tempUnit.getSymbol()
-												+ " (Original entry"
+												+ " (Original entry "
 												+ tempNode.getTextContent()
 												+ " "
 												+ tempUnit.getSymbol()
@@ -1117,7 +1176,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												+ val1
 												+ " " 
 												+ tempUnit.getSymbol() 
-												+ " (Original entry"
+												+ " (Original entry "
 												+ meta.getPixelsPhysicalSizeY(imageIndex).value().doubleValue()
 												+ " "
 												+ meta.getPixelsPhysicalSizeY(imageIndex).unit().getSymbol()
@@ -1126,7 +1185,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												+ val2
 												+ " " 
 												+ tempUnit.getSymbol()
-												+ " (Original entry"
+												+ " (Original entry "
 												+ tempNode.getTextContent()
 												+ " "
 												+ tempUnit.getSymbol()
@@ -1767,7 +1826,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												, ProgressDialog.LOG);
 									}
 								}
-								
+																
 								/**
 								 * Inject notes into the image description that allow to trace back to where the image came from
 								 */
