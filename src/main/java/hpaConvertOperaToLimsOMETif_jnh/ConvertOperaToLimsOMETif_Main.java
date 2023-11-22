@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.0.3
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.0.4
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: November 20, 2023)
+* Date: September 11, 2023 (This Version: November 21, 2023)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -92,7 +92,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.0.3";
+	static final String PLUGINVERSION = "0.0.4";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -149,6 +149,19 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	
 	// -----------------define params for Dialog-----------------
 	
+	
+	// Temporary variables used for the OPERA metadata file
+	String loadedMetadataFilePath = "";
+	int loadedTask = -1;
+	String metadataFilePath = "";
+	File metaDataFile = null;
+	Document metaDoc = null;
+	Node imagesNode = null, wellsNode = null, platesNode = null;
+	double zStepSizeInMicronAcrossWholeOPERAFile = -1.0;
+	String loadingLog = "";
+	int loadingLogMode = ProgressDialog.LOG;
+		
+	
 	// Developer variables
 	static final boolean LOGPOSITIONCONVERSIONFORDIAGNOSIS = false;// This fixed variable is just used when working on the code and to retrieve certain log output only
 	static final boolean LOGZDISTFINDING = false;// This fixed variable is just used when working on the code and to retrieve certain log output only
@@ -201,7 +214,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		gd.setInsets(10,0,0);	gd.addCheckbox("Crop image | new image width and height (px):", cropImage);
 		gd.setInsets(-23, 0, 0);	gd.addNumericField("",newImgLength,0);
 
-		gd.setInsets(0,0,0);	gd.addStringField("Filepath to output directory", outPath, 30);
+		gd.setInsets(0,0,0);	gd.addStringField("Filepath to output directory", outPath, 35);
 		gd.setInsets(0,0,0);	gd.addMessage("This path defines where outputfiles will be stored.", InstructionsFont);
 		gd.setInsets(0,0,0);	gd.addMessage("Make sure this path does not contain identically named files - the program may overwrite them.", InstructionsFont);
 
@@ -241,7 +254,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		// -------------------------------LOAD FILES-----------------------------------
 		// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
-		ImporterOptions bfOptions;
+		ImporterOptions bfOptions = null;
 		if (loadViaBioformats) {
 			/*
 			 * Explore file with bioformats
@@ -293,7 +306,6 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			}
 			
 			ImportProcess process;
-			
 			for(int i = tasks-1; i >= 0; i--){
 				IJ.showProgress((tasks-i)/tasks);
 				try {
@@ -378,6 +390,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							}							
 						}
 					}
+					process = null;
+					bfOptions.setId("");
 				} catch (Exception e) {
 					IJ.log(e.getCause().getLocalizedMessage());
 					IJ.log(e.getCause().getMessage());
@@ -408,14 +422,14 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 		// -----------------------------PROCESS TASKS----------------------------------
 		// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-
+		
 		int nChannels, nSlices;
 		for (int task = 0; task < tasks; task++) {
 			running: while (continueProcessing) {
 				progress.updateBarText("in progress...");
 
 				/**
-				 * Import the raw metadata XML file and generate document to read from it
+				 * Import the raw metadata XML file and generate document to read from it (only regenerate it if it was different in previous file)
 				 * 
 				 * Useful information about the XML file that contains the metadata
 				 * The OPERA setup assigns a specific ID to each image. This image ID looks e.g. as follows: "0501K1F1P1R1"
@@ -429,204 +443,28 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				 * Under the main Node <Wells> all wells are listed as a <Well> node and image ids for the images in that well are noted
 				 * Under the main node <Images> each image is listed as an <Image> node, which has as childs all metadata for that image, including channel information, id, etc.
 				 */
-				String metadataFilePath = dir [task] + System.getProperty("file.separator") + name [task];
-				File metaDataFile = new File(metadataFilePath);				
-				Document metaDoc = null;
-				
-				if(extendedLogging)	progress.notifyMessage("Series name: " + seriesName [task] + "", ProgressDialog.LOG);
-				if(extendedLogging)	progress.notifyMessage("Metadata file path: " + metadataFilePath + "", ProgressDialog.LOG);
-				
-				try {
-					DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-					DocumentBuilder db = dbf.newDocumentBuilder();
-					metaDoc = db.parse(metaDataFile);
-					metaDoc.getDocumentElement().normalize();
-				} catch (SAXException | IOException | ParserConfigurationException e) {
-					String out = "";
-					for (int err = 0; err < e.getStackTrace().length; err++) {
-						out += " \n " + e.getStackTrace()[err].toString();
-					}
-					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process metadata file " + metadataFilePath 
-							+ "\nError message: " + e.getMessage()
-							+ "\nError localized message: " + e.getLocalizedMessage()
-							+ "\nError cause: " + e.getCause() 
-							+ "\nDetailed message:"
-							+ "\n" + out,
-							ProgressDialog.ERROR);
-					return;
-				}		
-				
-				/**
-				 * Get basic nodes to find information in metaDoc
-				 */
-				Node imagesNode = metaDoc.getElementsByTagName("Images").item(0);
-				Node wellsNode = metaDoc.getElementsByTagName("Wells").item(0);
-				Node platesNode = metaDoc.getElementsByTagName("Plates").item(0);
-								
-				/**
-				 * Exploring the number of plates
-				 */				
-				int plateIndexOriginalMetadata = 0;
-				for(int p = 0; p < platesNode.getChildNodes().getLength(); p++){
-					if(platesNode.getChildNodes().item(p).getNodeName().equals("Plate")) {
-						plateIndexOriginalMetadata = p;
-						break;
-					}
-				}
-				Node plateNode = platesNode.getChildNodes().item(plateIndexOriginalMetadata);	
-				String plateIDOriginalMetadata = getFirstNodeWithName(plateNode.getChildNodes(), "PlateID").getTextContent();
-				if(extendedLogging){
-					progress.notifyMessage("Fetched first plate node (id = " + plateIndexOriginalMetadata 
-							+ ") with id " + plateIDOriginalMetadata + ".", ProgressDialog.LOG);
-				}
-				
-				/**
-				 * Verifying the number of plates
-				 */
 				{
-					int nrOfPlates = 0;
-					for(int pp = 0; pp < platesNode.getChildNodes().getLength(); pp++){
-						if(platesNode.getChildNodes().item(pp).getNodeName().equals("Plate")) {
-							nrOfPlates++;
+					String tempPath = dir [task] + System.getProperty("file.separator") + name [task];					
+					if(tempPath.equals(loadedMetadataFilePath)) {
+						if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Series name: " + seriesName [task] + "", ProgressDialog.LOG);
+						if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata file path: " + metadataFilePath + "", ProgressDialog.LOG);
+						if(extendedLogging) {
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata file was already loaded in task " + (loadedTask + 1) + " and thus not reloaded. The logging information from loading the metadatafile were:" + loadingLog + "", loadingLogMode);
+						}else if(loadingLogMode != ProgressDialog.LOG) {
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata file was already loaded in task " + (loadedTask + 1) + " and thus not reloaded. There were WARNINGS! See log information here:" + loadingLog + "", loadingLogMode);
 						}
-					}
-					if(nrOfPlates > 1){
-						progress.notifyMessage("ERROR! Task " + (task + 1) + "/" + tasks + ": " + nrOfPlates + " different plates were found in the metadata xml file. "
-								+ "So far this software can only handle recording from one plate. Metadata from plate " + plateIDOriginalMetadata + " will be used. "
-								+ "Wrong metadata may be copied for files from other plates. "
-								+ "Contact the developer to implement converting images from multiple plates! ", ProgressDialog.ERROR);
-						return;
+						
+					}else{
+						if(!loadOPERAMetadatafile(tempPath, task)) {
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not load metadata file " + tempPath + "!",
+									ProgressDialog.ERROR);
+							break running;
+						}
+						if(extendedLogging)	progress.notifyMessage("Series name: " + seriesName [task] + "", ProgressDialog.LOG);
+						if(extendedLogging)	progress.notifyMessage("Metadata file path: " + metadataFilePath + "", ProgressDialog.LOG);
 						
 					}
-				}			
-				
-				/***
-				 * Find the plane step size by scanning the images.
-				 */
-				double zStepSizeInMicronAcrossWholeOPERAFile = 0.0;
-				{
-					Node tempZNode;
-					double tempAbsZ;
-					String previousPlaneImageID = "", currentPlaneImageID = "";
-					Length previousPlaneAbsZ = null, currentPlaneAbsZ;
-					Unit<Length> unitForComparison = UNITS.MICROMETER, currentPlaneAbsZUnit;
-					
-					LinkedList<Double> observedZValues = new LinkedList<Double>();
-					LinkedList<Integer> observedZValueOccurences = new LinkedList<Integer>();
-					
-					screening: for(int img = 0; img < imagesNode.getChildNodes().getLength(); img++){
-						if(!imagesNode.getChildNodes().item(img).hasChildNodes()) {
-							continue;
-						}
-						try {
-							currentPlaneImageID = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "id").getTextContent();
-							if(!currentPlaneImageID.endsWith("R1")) continue; // Only consider first channels for extracting z information
-														
-							tempZNode = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "AbsPositionZ");
-							currentPlaneAbsZUnit = getLengthUnitFromNodeAttribute(tempZNode);
-							currentPlaneAbsZ = new Length (Double.parseDouble(tempZNode.getTextContent()), currentPlaneAbsZUnit);
-							
-							if(previousPlaneImageID.equals("")) {
-								previousPlaneImageID = currentPlaneImageID;
-								previousPlaneAbsZ = currentPlaneAbsZ;
-								continue screening;
-							}else if(Integer.parseInt(currentPlaneImageID.substring(currentPlaneImageID.lastIndexOf("P")+1,currentPlaneImageID.lastIndexOf("R"))) == Integer.parseInt(previousPlaneImageID.substring(previousPlaneImageID.lastIndexOf("P")+1,previousPlaneImageID.lastIndexOf("R")))+1) {
-								//This condition is met only if the plane is a follow up plane of the previous stored plane
-								//Now we verify that the remaining identifiers match and if so we create a z value
-								if(currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(previousPlaneImageID.substring(0,previousPlaneImageID.lastIndexOf("P")))) {
-									tempAbsZ = currentPlaneAbsZ.value(unitForComparison).doubleValue() - previousPlaneAbsZ.value(unitForComparison).doubleValue();
-									tempAbsZ = Double.parseDouble(String.format("%." + String.valueOf(2) + "g%n", tempAbsZ));
-									if(tempAbsZ < 0) tempAbsZ *= -1.0;
-									for(int zV = 0; zV < observedZValues.size();zV++) {
-										if(observedZValues.get(zV) == tempAbsZ) {
-											observedZValueOccurences.set(zV,observedZValueOccurences.get(zV)+1);
-											previousPlaneImageID = currentPlaneImageID;
-											previousPlaneAbsZ = currentPlaneAbsZ;
-											continue screening;
-										}
-									}
-									observedZValues.add(tempAbsZ);
-									observedZValueOccurences.add(1);
-									
-									if(extendedLogging || LOGZDISTFINDING) {
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Added a calculated ZValue (" + observedZValues
-												+ ") based on comparing the AbsPositionZ of "
-												+ previousPlaneImageID
-												+ " (Z value of Length object: "
-												+ previousPlaneAbsZ.value(unitForComparison)
-												+ " " 
-												+ unitForComparison.getSymbol()
-												+ ") and "
-												+ currentPlaneImageID
-												+ "(Z text: "
-												+ tempZNode.getTextContent()
-												+ " " 
-												+ currentPlaneAbsZUnit.getSymbol()
-												+ "). "
-												,
-												ProgressDialog.LOG);
-									}
-									previousPlaneImageID = currentPlaneImageID;
-									previousPlaneAbsZ = currentPlaneAbsZ;
-									continue screening;
-								}else {
-									previousPlaneImageID = currentPlaneImageID;
-									previousPlaneAbsZ = currentPlaneAbsZ;
-									continue screening;
-								}
-							}else {
-								previousPlaneImageID = currentPlaneImageID;
-								previousPlaneAbsZ = currentPlaneAbsZ;
-								continue screening;
-							}							
-						}catch(Exception e) {
-							String out = "";
-							for (int err = 0; err < e.getStackTrace().length; err++) {
-								out += " \n " + e.getStackTrace()[err].toString();
-							}
-							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not find Z information in image node " 
-									+ img 
-									+ ". Node name: "
-									+ imagesNode.getChildNodes().item(img).getNodeName()
-									+ ". Node value: "
-									+ imagesNode.getChildNodes().item(img).getNodeValue()
-									+ ". Error " + e.getCause() + " - Detailed message:\n" + out,
-									ProgressDialog.ERROR);
-							continue screening;
-						}						
-					}
-					
-					/**
-					 * Checking the determined Z values
-					 */
-					if(observedZValues.size() > 1) {
-						int tempCt = 0;
-						for(int i = 0; i < observedZValues.size(); i++) {
-							if(observedZValueOccurences.get(i) > tempCt) {
-								tempCt = observedZValueOccurences.get(i);
-								zStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(i);
-							}
-						}
-						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": There are images with different Z spacings available in this OPERA output file: " 
-								+ observedZValues 
-								+ " with the observed frequencies of " 
-								+ observedZValueOccurences 
-								+ "."
-								+ " This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
-								+ " This program will save the most frequent observed Z step size ("
-								+ zStepSizeInMicronAcrossWholeOPERAFile
-								+ " micron) in the OPERA file as a Z calibration value for all converted images.",
-								ProgressDialog.NOTIFICATION);
-					}else {
-						zStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(0);
-						observedZValues = null;
-						if(extendedLogging || LOGZDISTFINDING) {
-							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Found Z step size in metadata and will set it as image calibration - value " + observedZValues + ".",
-									ProgressDialog.LOG);
-						}
-					}
-				}				
-				System.gc();
+				}
 				
 				/***
 				 * Open the image and save it as OME TIF in a temp folder
@@ -635,11 +473,15 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				if(loadViaBioformats){
 					try {
 						//bio format reader
-		   				bfOptions = new ImporterOptions();
-		   				bfOptions.setId(""+dir[task]+ System.getProperty("file.separator") + name[task]+"");
-		   				bfOptions.setVirtual(false);
-		   				bfOptions.setAutoscale(true);
-		   				bfOptions.setColorMode(ImporterOptions.COLOR_MODE_COMPOSITE);
+						if(bfOptions.getId().equals(dir[task]+ System.getProperty("file.separator") + name[task])) {
+							//already loaded
+						}else {
+							bfOptions = new ImporterOptions();
+			   				bfOptions.setId(""+dir[task]+ System.getProperty("file.separator") + name[task]+"");
+			   				bfOptions.setVirtual(false);
+			   				bfOptions.setAutoscale(true);
+			   				bfOptions.setColorMode(ImporterOptions.COLOR_MODE_COMPOSITE);
+						}		   				
 		   				for(int i = 0; i < totSeries[task]; i++) {
 		   					if(i==series[task]) {
 		   						bfOptions.setSeriesOn(i, true);
@@ -770,6 +612,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								/**
 								 * Generate a MetadatStore out of the tif comment (= OME XML String) to explore the xml-styled content
 								 * */
+								progress.updateBarText("Generate metadata store from tiff comment for image " + omeTifFileName);
 								factory = new ServiceFactory();
 								service = factory.getInstance(OMEXMLService.class);
 								meta = service.createOMEXMLMetadata(comment);
@@ -791,6 +634,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								/**
 								 * Find the plate, well, and wellSample that the image is from.
 								 */
+								progress.updateBarText("Fetcb plate, well, and sample ids for image " + omeTifFileName);
 								int plateIndex, wellIndex, wellSampleIndex;
 								plateIndex = -1;
 								wellIndex = -1;
@@ -867,6 +711,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								/**
 								 * Find image information in TiffData
 								 */
+								progress.updateBarText("Exploring TiffData of image " + omeTifFileName);
+									
 								int imageC = -1, imageT = -1, imageZ = -1, imageIFD = -1;
 								String imageUUID = "NA";
 								if(meta.getTiffDataCount(imageIndex)==0) {
@@ -929,6 +775,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 * 	- 'P1' refers to the focal plane so the z position
 								 * 	- 'R1' refers to the channel position
 								 */
+								progress.updateBarText("Searching the metadata note in the original OPERA index file for image " + omeTifFileName);
 								String imageLabelOPERA = getOPERAString(wellRow, wellColumn, imageT, wellSampleIndex, imageZ, imageC);
 								if(extendedLogging)	progress.notifyMessage("Reconstructed reference in OPERA metadata " + imageLabelOPERA, ProgressDialog.LOG);
 								
@@ -940,7 +787,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								}
 								
 								if(extendedLogging)	progress.notifyMessage("Found image node with id " + imageLabelOPERA + " in OPERA metadata!", ProgressDialog.LOG);
-																	
+							
+								progress.updateBarText("Exploring the original OPERA index file for image " + omeTifFileName + " (OPERA ID " + imageLabelOPERA + ")");
 								/**
 								 * Determine X and Y position of well center
 								 */
@@ -1104,6 +952,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									}
 								}									
 								
+								progress.updateBarText("Verify resolution and position information with original OPERA index file (OPERA ID " + imageLabelOPERA + ")");
 								/**
 								 * Verify that image resolution is same in metadata
 								 * <ImageResolutionX Unit="m">9.4916838247105038E-08</ImageResolutionX>
@@ -1374,7 +1223,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									}
 								}
 								
-																										
+
+								progress.updateBarText("Transfer missing metadata from original OPERA index file to OME metadata (OPERA ID " + imageLabelOPERA + ")");																	
 								/**
 								 * Generate instrument in metadata, use following information
 								 * <AcquisitionType>NipkowConfocal</AcquisitionType>
@@ -1524,6 +1374,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											+ "", ProgressDialog.LOG);
 								}
 								
+								progress.updateBarText("Transfer channel metadata from original OPERA index file to OME metadata (OPERA ID " + imageLabelOPERA + ")");
 								/**
 								 * Set channel information
 								 * */
@@ -1712,7 +1563,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									
 									
 								}
-																
+									
+								progress.updateBarText("Find out acquisition date from original OPERA index file to OME metadata (OPERA ID " + imageLabelOPERA + ")");
 								/**
 								 * Get acquisition date
 								 */
@@ -1738,10 +1590,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								dateString = dateString.replace("T", "_");
 								
 
+								progress.updateBarText("Create folder structure for saving the image (if necessary) (OPERA ID " + imageLabelOPERA + ")");
 								/**
 								 * Create folder structure and file names for saving
-								 * */								
-									
+								 * */
 								// Generate a directory for each well, where images shall be saved						
 								String wellString = "";
 								try{
@@ -1802,6 +1654,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
 										+ "Computed file name: " + outImageName, ProgressDialog.LOG);
 
+								progress.updateBarText("Finishing up corrected OME Tiff comment (OPERA ID " + imageLabelOPERA + ")");
 								/**
 								 * Replace the FileName attribute in the UUID under TiffData in the OME XML with names following the nametypes applied here
 								 * */		
@@ -1858,6 +1711,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									
 								}
 								
+								progress.updateBarText("Copying file to new folder system (OPERA ID " + imageLabelOPERA + ")");
 								/**
 								 * Copy the file to the new folder.
 								 * */								
@@ -1875,13 +1729,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								/**
 								 * Copying metadata file
 								 */
-								
 								//Copy metadata
 								File newMetadataFile = new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator") + "image.ome.xml");
 								if(newMetadataFile.exists()) {
 									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata existed already (" + newMetadataFile.getAbsolutePath() + ")", ProgressDialog.LOG);
 								}else {
-									
 									new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator")).mkdirs();
 									FileUtils.copyFile(metaDataFile, newMetadataFile);
 									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Saved meta data file (" + metaDataFile + ") as " + newMetadataFile.getAbsolutePath(), ProgressDialog.LOG);
@@ -2063,7 +1915,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								/**
 								 * Saving modified omexml tif comment into copied image
 								 * */
-							    TiffSaver saver = new TiffSaver(savingDir + System.getProperty("file.separator") + outImageName);
+								progress.updateBarText("Saving modified tif comment into copied file " + outImageName + ")");
+								TiffSaver saver = new TiffSaver(savingDir + System.getProperty("file.separator") + outImageName);
 							    RandomAccessInputStream in = new RandomAccessInputStream(savingDir + System.getProperty("file.separator") + outImageName);
 							    try {
 									saver.overwriteComment(in, comment);
@@ -2522,6 +2375,248 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			outDigits = String.valueOf(val2).split("\\.")[1].length();
 		}
 		return outDigits;
+	}
+	
+	/**
+	 * 
+	 * @param path
+	 * @param task
+	 */
+	private boolean loadOPERAMetadatafile(String path, int task) {
+		loadingLog = "";
+		loadingLogMode = ProgressDialog.LOG;
+		String tempMsg = "";
+		
+		// Initialize metadata document
+		{
+			metadataFilePath = path;
+			metaDataFile = new File(metadataFilePath);				
+			metaDoc = null;
+					
+			try {
+				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+				DocumentBuilder db = dbf.newDocumentBuilder();
+				metaDoc = db.parse(metaDataFile);
+				metaDoc.getDocumentElement().normalize();
+			} catch (SAXException | IOException | ParserConfigurationException e) {
+				String out = "";
+				for (int err = 0; err < e.getStackTrace().length; err++) {
+					out += " \n " + e.getStackTrace()[err].toString();
+				}
+				progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Could not process metadata file " + metadataFilePath 
+						+ "\nError message: " + e.getMessage()
+						+ "\nError localized message: " + e.getLocalizedMessage()
+						+ "\nError cause: " + e.getCause() 
+						+ "\nDetailed message:"
+						+ "\n" + out,
+						ProgressDialog.ERROR);
+				setOPERAMetaDataToUnloaded();
+				return false;
+			}
+			
+
+			imagesNode = metaDoc.getElementsByTagName("Images").item(0);
+			wellsNode = metaDoc.getElementsByTagName("Wells").item(0);
+			platesNode = metaDoc.getElementsByTagName("Plates").item(0);
+			
+		}
+		
+		/**
+		 * Exploring the number of plates
+		 */				
+		int plateIndexOriginalMetadata = 0;
+		for(int p = 0; p < platesNode.getChildNodes().getLength(); p++){
+			if(platesNode.getChildNodes().item(p).getNodeName().equals("Plate")) {
+				plateIndexOriginalMetadata = p;
+				break;
+			}
+		}
+		Node plateNode = platesNode.getChildNodes().item(plateIndexOriginalMetadata);	
+		String plateIDOriginalMetadata = getFirstNodeWithName(plateNode.getChildNodes(), "PlateID").getTextContent();
+		if(extendedLogging){
+			tempMsg = "Fetched first plate node (id = " + plateIndexOriginalMetadata 
+					+ ") with id " + plateIDOriginalMetadata + ".";
+			loadingLog += "\n" + tempMsg;
+			progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " + tempMsg, ProgressDialog.LOG);
+			
+		}
+		
+		/**
+		 * Verifying the number of plates
+		 */
+		{
+			int nrOfPlates = 0;
+			for(int pp = 0; pp < platesNode.getChildNodes().getLength(); pp++){
+				if(platesNode.getChildNodes().item(pp).getNodeName().equals("Plate")) {
+					nrOfPlates++;
+				}
+			}
+			if(nrOfPlates > 1){
+				progress.notifyMessage("ERROR! Task " + (task + 1) + "/" + tasks + ": " + nrOfPlates + " different plates were found in the metadata xml file. "
+						+ "So far this software can only handle recording from one plate. Metadata from plate " + plateIDOriginalMetadata + " will be used. "
+						+ "Wrong metadata may be copied for files from other plates. "
+						+ "Contact the developer to implement converting images from multiple plates! ", ProgressDialog.ERROR);
+				setOPERAMetaDataToUnloaded();
+				return false;
+				
+			}
+		}			
+		
+		/***
+		 * Find the plane step size by scanning the images.
+		 */
+		zStepSizeInMicronAcrossWholeOPERAFile = 0.0;
+		{
+			Node tempZNode;
+			double tempAbsZ;
+			String previousPlaneImageID = "", currentPlaneImageID = "";
+			Length previousPlaneAbsZ = null, currentPlaneAbsZ;
+			Unit<Length> unitForComparison = UNITS.MICROMETER, currentPlaneAbsZUnit;
+			
+			LinkedList<Double> observedZValues = new LinkedList<Double>();
+			LinkedList<Integer> observedZValueOccurences = new LinkedList<Integer>();
+			
+			screening: for(int img = 0; img < imagesNode.getChildNodes().getLength(); img++){
+				if(!imagesNode.getChildNodes().item(img).hasChildNodes()) {
+					continue;
+				}
+				try {
+					currentPlaneImageID = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "id").getTextContent();
+					if(!currentPlaneImageID.endsWith("R1")) continue; // Only consider first channels for extracting z information
+												
+					tempZNode = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "AbsPositionZ");
+					currentPlaneAbsZUnit = getLengthUnitFromNodeAttribute(tempZNode);
+					currentPlaneAbsZ = new Length (Double.parseDouble(tempZNode.getTextContent()), currentPlaneAbsZUnit);
+					
+					if(previousPlaneImageID.equals("")) {
+						previousPlaneImageID = currentPlaneImageID;
+						previousPlaneAbsZ = currentPlaneAbsZ;
+						continue screening;
+					}else if(Integer.parseInt(currentPlaneImageID.substring(currentPlaneImageID.lastIndexOf("P")+1,currentPlaneImageID.lastIndexOf("R"))) == Integer.parseInt(previousPlaneImageID.substring(previousPlaneImageID.lastIndexOf("P")+1,previousPlaneImageID.lastIndexOf("R")))+1) {
+						//This condition is met only if the plane is a follow up plane of the previous stored plane
+						//Now we verify that the remaining identifiers match and if so we create a z value
+						if(currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(previousPlaneImageID.substring(0,previousPlaneImageID.lastIndexOf("P")))) {
+							tempAbsZ = currentPlaneAbsZ.value(unitForComparison).doubleValue() - previousPlaneAbsZ.value(unitForComparison).doubleValue();
+							tempAbsZ = Double.parseDouble(String.format("%." + String.valueOf(2) + "g%n", tempAbsZ));
+							if(tempAbsZ < 0) tempAbsZ *= -1.0;
+							for(int zV = 0; zV < observedZValues.size();zV++) {
+								if(observedZValues.get(zV) == tempAbsZ) {
+									observedZValueOccurences.set(zV,observedZValueOccurences.get(zV)+1);
+									previousPlaneImageID = currentPlaneImageID;
+									previousPlaneAbsZ = currentPlaneAbsZ;
+									continue screening;
+								}
+							}
+							observedZValues.add(tempAbsZ);
+							observedZValueOccurences.add(1);
+							
+							if(extendedLogging || LOGZDISTFINDING) {
+								tempMsg = "Added a calculated ZValue (" + observedZValues
+										+ ") based on comparing the AbsPositionZ of "
+										+ previousPlaneImageID
+										+ " (Z value of Length object: "
+										+ previousPlaneAbsZ.value(unitForComparison)
+										+ " " 
+										+ unitForComparison.getSymbol()
+										+ ") and "
+										+ currentPlaneImageID
+										+ "(Z text: "
+										+ tempZNode.getTextContent()
+										+ " " 
+										+ currentPlaneAbsZUnit.getSymbol()
+										+ "). ";
+								loadingLog += "\n" + tempMsg;
+								progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " + tempMsg, ProgressDialog.LOG);
+							}
+							previousPlaneImageID = currentPlaneImageID;
+							previousPlaneAbsZ = currentPlaneAbsZ;
+							continue screening;
+						}else {
+							previousPlaneImageID = currentPlaneImageID;
+							previousPlaneAbsZ = currentPlaneAbsZ;
+							continue screening;
+						}
+					}else {
+						previousPlaneImageID = currentPlaneImageID;
+						previousPlaneAbsZ = currentPlaneAbsZ;
+						continue screening;
+					}							
+				}catch(Exception e) {
+					String out = "";
+					for (int err = 0; err < e.getStackTrace().length; err++) {
+						out += " \n " + e.getStackTrace()[err].toString();
+					}
+					tempMsg = "Could not find Z information in image node " 
+							+ img 
+							+ ". Node name: "
+							+ imagesNode.getChildNodes().item(img).getNodeName()
+							+ ". Node value: "
+							+ imagesNode.getChildNodes().item(img).getNodeValue()
+							+ ". Error " + e.getCause() + " - Detailed message:\n" + out;
+					loadingLog += "\n" + tempMsg;	
+					loadingLogMode = ProgressDialog.ERROR;
+					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " + tempMsg,
+							ProgressDialog.ERROR);
+					
+				}						
+			}
+			
+			/**
+			 * Checking the determined Z values
+			 */
+			if(observedZValues.size() > 1) {
+				int tempCt = 0;
+				for(int i = 0; i < observedZValues.size(); i++) {
+					if(observedZValueOccurences.get(i) > tempCt) {
+						tempCt = observedZValueOccurences.get(i);
+						zStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(i);
+					}
+				}
+				
+				tempMsg = "There are images with different Z spacings available in this OPERA output file: " 
+						+ observedZValues 
+						+ " with the observed frequencies of " 
+						+ observedZValueOccurences 
+						+ "."
+						+ " This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
+						+ " This program will save the most frequent observed Z step size ("
+						+ zStepSizeInMicronAcrossWholeOPERAFile
+						+ " micron) in the OPERA file as a Z calibration value for all converted images.";
+				loadingLog += "\nWARNING: " + tempMsg;
+				if(loadingLogMode != ProgressDialog.ERROR) {
+					loadingLogMode = ProgressDialog.NOTIFICATION;
+				}
+				progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " + tempMsg,
+						ProgressDialog.NOTIFICATION);
+			}else {
+				zStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(0);
+				observedZValues = null;
+				if(extendedLogging || LOGZDISTFINDING) {
+					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Found Z step size in metadata and will set it as image calibration - value " + observedZValues + ".",
+							ProgressDialog.LOG);
+				}
+			}
+		}				
+		System.gc();	
+		
+		// Finish loading
+		loadedMetadataFilePath = metadataFilePath;
+		loadedTask = task;
+		return true;
+	}
+	
+	private void setOPERAMetaDataToUnloaded() {
+		loadedMetadataFilePath = "";
+		loadedTask = -1;
+		metadataFilePath = "";
+		metaDataFile = null;
+		metaDoc = null;
+		imagesNode = null;
+		wellsNode = null;
+		platesNode = null;
+		zStepSizeInMicronAcrossWholeOPERAFile = -1.0;
+		loadingLog = "";
+		loadingLogMode = ProgressDialog.LOG;
 	}
 	
 }// end main class
