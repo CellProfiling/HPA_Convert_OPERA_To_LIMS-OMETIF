@@ -47,6 +47,11 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
+import javax.xml.xpath.XPathFactory;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathExpression;
+import javax.xml.xpath.XPathExpressionException;
 
 import org.apache.commons.io.FileDeleteStrategy;
 import org.apache.commons.io.FileUtils;
@@ -160,6 +165,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	double zStepSizeInMicronAcrossWholeOPERAFile = -1.0;
 	String loadingLog = "";
 	int loadingLogMode = ProgressDialog.LOG;
+	XPathFactory xPathfactory = null;
+	XPath xp = null;
 		
 	
 	// Developer variables
@@ -184,6 +191,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		String seriesName [] =  { "", "" };
 		String dir[] = { "", "" };
 		String fullPath[] = { "", "" };
+		
+		xPathfactory = XPathFactory.newInstance();
+		xp = xPathfactory.newXPath();
 
 		// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 		// --------------------------REQUEST USER-SETTINGS-----------------------------
@@ -426,7 +436,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		int nChannels, nSlices;
 		for (int task = 0; task < tasks; task++) {
 			running: while (continueProcessing) {
-				progress.updateBarText("in progress...");
+				progress.updateBarText("In progress...");
 
 				/**
 				 * Import the raw metadata XML file and generate document to read from it (only regenerate it if it was different in previous file)
@@ -466,9 +476,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					}
 				}
 				
+				
 				/***
 				 * Open the image and save it as OME TIF in a temp folder
 				 */				
+				progress.updateBarText("Loading images via BioFormats...");
 				ImagePlus imp = null;				
 				if(loadViaBioformats){
 					try {
@@ -520,7 +532,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				}
 				
 				//Crop image to user defined size
-				if(cropImage) {					
+				if(cropImage) {
+					progress.updateBarText("Cropping...");
 					imp.setRoi((int)((double)(imp.getWidth() - newImgLength)/2.0),
 							(int)((double)(imp.getHeight() - newImgLength)/2.0),
 							newImgLength,
@@ -557,6 +570,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					
 				}
 				
+				progress.updateBarText("Creating temporary ome.tif files...");
 				/**
 				 * Create a temporary file repository and write the files into an OME-TIF format, output images will be called <outFilename>_Z2_C4.ome
 				 */
@@ -576,6 +590,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							ProgressDialog.ERROR);
 					break running;
 				}				
+				progress.updateBarText("Created temporary ome.tif files... now starting reformating");
 				
 				/*
 				 * Reopen each written file and resave it 
@@ -779,7 +794,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								String imageLabelOPERA = getOPERAString(wellRow, wellColumn, imageT, wellSampleIndex, imageZ, imageC);
 								if(extendedLogging)	progress.notifyMessage("Reconstructed reference in OPERA metadata " + imageLabelOPERA, ProgressDialog.LOG);
 								
-								Node imageNode = getImageNodeWithID_OPERAMETADATA(imagesNode.getChildNodes(), imageLabelOPERA);
+								Node imageNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(), imageLabelOPERA);
 								if(imageNode.equals(null)) {
 									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Could not find image node with id " + imageLabelOPERA + "in OPERA Metadata XML!",
 											ProgressDialog.ERROR);
@@ -855,7 +870,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 																														
 										Node planeImageNode = null;									
 										try {
-											planeImageNode = getImageNodeWithID_OPERAMETADATA(imagesNode.getChildNodes(), OPERAString);
+											planeImageNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(), OPERAString);
 										}catch(java.lang.NullPointerException e) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", plane " + (p+1) + ":" + "Searching node " 
 													+ OPERAString
@@ -952,278 +967,319 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									}
 								}									
 								
-								progress.updateBarText("Verify resolution and position information with original OPERA index file (OPERA ID " + imageLabelOPERA + ")");
-								/**
-								 * Verify that image resolution is same in metadata
-								 * <ImageResolutionX Unit="m">9.4916838247105038E-08</ImageResolutionX>
-								 * <ImageResolutionY Unit="m">9.4916838247105038E-08</ImageResolutionY>
-								 */
+								progress.updateBarText("Verify XY resolution information with original OPERA index file (OPERA ID " + imageLabelOPERA + ")");
 								{
-									Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionX");
-									Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(tempNode);
-									Length tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()), 
-											tempUnit);
-
-									double 	val1 = meta.getPixelsPhysicalSizeX(imageIndex).value(tempUnit).doubleValue(),
-											val2 = tempLength.value(tempUnit).doubleValue();
-									int digitsToCompare = getMinNrOfDigits(val1, val2);
-									String val1Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val1);
-									String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
+									Node tempNode;
+									Unit<Length> tempUnit;
+									Length tempLength;
+									double 	val1, val2;
+									int digitsToCompare;
+									String val1Str, val2Str;
 									
-									if(val1Str.equals(val2Str)) {
-										if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
-											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Confirmed that physical size X matches metadata!", ProgressDialog.LOG);
+									/**
+									 * Verify that image resolution is same in metadata
+									 * <ImageResolutionX Unit="m">9.4916838247105038E-08</ImageResolutionX>
+									 * <ImageResolutionY Unit="m">9.4916838247105038E-08</ImageResolutionY>
+									 */
+									{
+										tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionX");
+										tempUnit = getLengthUnitFromNodeAttribute(tempNode);
+										tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()), 
+												tempUnit);
+
+										val1 = meta.getPixelsPhysicalSizeX(imageIndex).value(tempUnit).doubleValue();
+										val2 = tempLength.value(tempUnit).doubleValue();
+										digitsToCompare = getMinNrOfDigits(val1, val2);
+										val1Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val1);
+										val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
+										
+										if(val1Str.equals(val2Str)) {
+											if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Confirmed that physical size X matches metadata!", ProgressDialog.LOG);
+											}
+										}else {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Physical size X in image OME metadata and original metadata disagree!"
+													+ " Replaced image metadata physical X size with value from original OPERA XML metadata!"
+													+ " Image OME data: " 
+													+ val1
+													+ " " 
+													+ tempUnit.getSymbol() 
+													+ " (Original entry "
+													+ meta.getPixelsPhysicalSizeX(imageIndex).value().doubleValue()
+													+ " "
+													+ meta.getPixelsPhysicalSizeX(imageIndex).unit().getSymbol()
+													+ ")"
+													+ ", XML Metadata:  " 
+													+ val2
+													+ " " 
+													+ tempUnit.getSymbol()
+													+ " (Original entry "
+													+ tempNode.getTextContent()
+													+ " "
+													+ tempUnit.getSymbol()
+													+ "). For comparison these values were converted to " + digitsToCompare + " digits as: "
+													+ val1Str
+													+ " and "
+													+ val2Str
+													+ ".", ProgressDialog.NOTIFICATION);
+											meta.setPixelsPhysicalSizeX(tempLength, imageIndex);
 										}
-									}else {
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Physical size X in image OME metadata and original metadata disagree!"
-												+ " Replaced image metadata physical X size with value from original OPERA XML metadata!"
-												+ " Image OME data: " 
-												+ val1
-												+ " " 
-												+ tempUnit.getSymbol() 
-												+ " (Original entry "
-												+ meta.getPixelsPhysicalSizeX(imageIndex).value().doubleValue()
-												+ " "
-												+ meta.getPixelsPhysicalSizeX(imageIndex).unit().getSymbol()
-												+ ")"
-												+ ", XML Metadata:  " 
-												+ val2
-												+ " " 
-												+ tempUnit.getSymbol()
-												+ " (Original entry "
-												+ tempNode.getTextContent()
-												+ " "
-												+ tempUnit.getSymbol()
-												+ "). For comparison these values were converted to " + digitsToCompare + " digits as: "
-												+ val1Str
-												+ " and "
-												+ val2Str
-												+ ".", ProgressDialog.NOTIFICATION);
-										meta.setPixelsPhysicalSizeX(tempLength, imageIndex);
+									}
+									{
+										tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionY");
+										tempUnit = getLengthUnitFromNodeAttribute(tempNode);
+										tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()), 
+												tempUnit);
+
+										val1 = meta.getPixelsPhysicalSizeY(imageIndex).value(tempUnit).doubleValue();
+										val2 = tempLength.value(tempUnit).doubleValue();
+										digitsToCompare = getMinNrOfDigits(val1, val2);
+										val1Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val1);
+										val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
+										
+										if(val1Str.equals(val2Str)) {
+											if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Confirmed that physical size Y matches metadata!", ProgressDialog.LOG);
+											}
+										}else {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Physical size Y in image OME metadata and original metadata disagree!"
+													+ " Replaced image metadata physical Y size with value from original OPERA XML metadata!"
+													+ " Image OME data: " 
+													+ val1
+													+ " " 
+													+ tempUnit.getSymbol() 
+													+ " (Original entry "
+													+ meta.getPixelsPhysicalSizeY(imageIndex).value().doubleValue()
+													+ " "
+													+ meta.getPixelsPhysicalSizeY(imageIndex).unit().getSymbol()
+													+ ")"
+													+ ", XML Metadata:  " 
+													+ val2
+													+ " " 
+													+ tempUnit.getSymbol()
+													+ " (Original entry "
+													+ tempNode.getTextContent()
+													+ " "
+													+ tempUnit.getSymbol()
+													+ "). For comparison these values were converted to " + digitsToCompare + " digits as: "
+													+ val1Str
+													+ " and "
+													+ val2Str
+													+ ".", ProgressDialog.NOTIFICATION);
+											meta.setPixelsPhysicalSizeY(tempLength, imageIndex);
+										}
 									}
 								}
 								{
-									Node tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionY");
-									Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(tempNode);
-									Length tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()), 
-											tempUnit);
-
-									double 	val1 = meta.getPixelsPhysicalSizeY(imageIndex).value(tempUnit).doubleValue(),
-											val2 = tempLength.value(tempUnit).doubleValue();
-									int digitsToCompare = getMinNrOfDigits(val1, val2);
-									String val1Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val1);
-									String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
-									
-									if(val1Str.equals(val2Str)) {
-										if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
-											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Confirmed that physical size Y matches metadata!", ProgressDialog.LOG);
-										}
-									}else {
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Physical size Y in image OME metadata and original metadata disagree!"
-												+ " Replaced image metadata physical Y size with value from original OPERA XML metadata!"
-												+ " Image OME data: " 
-												+ val1
-												+ " " 
-												+ tempUnit.getSymbol() 
-												+ " (Original entry "
-												+ meta.getPixelsPhysicalSizeY(imageIndex).value().doubleValue()
-												+ " "
-												+ meta.getPixelsPhysicalSizeY(imageIndex).unit().getSymbol()
-												+ ")"
-												+ ", XML Metadata:  " 
-												+ val2
-												+ " " 
-												+ tempUnit.getSymbol()
-												+ " (Original entry "
-												+ tempNode.getTextContent()
-												+ " "
-												+ tempUnit.getSymbol()
-												+ "). For comparison these values were converted to " + digitsToCompare + " digits as: "
-												+ val1Str
-												+ " and "
-												+ val2Str
-												+ ".", ProgressDialog.NOTIFICATION);
-										meta.setPixelsPhysicalSizeY(tempLength, imageIndex);
-									}
-								}
-								
-								/**
-								 * Verify and eventually correct the PhysicalSizeZ parameter in the ome.tif and in the image calibration
-								 */
-								{
-									Node tempZNode;
-									double tempAbsZValue;
-									String previousPlaneImageID = "", currentPlaneImageID = "";
-									Length previousPlaneAbsZ = null, currentPlaneAbsZ;
-									Unit<Length> unitForComparingValues = UNITS.MICROMETER, currentPlaneAbsZUnit;
-									
-									LinkedList<Double> observedZValues = new LinkedList<Double>();
-									LinkedList<Integer> observedZValueOccurences = new LinkedList<Integer>();
-									
-									screening: for(int img = 0; img < imagesNode.getChildNodes().getLength(); img++){
-										if(!imagesNode.getChildNodes().item(img).hasChildNodes()) {
-											continue;
-										}
+									/**
+									 * Verify and eventually correct the PhysicalSizeZ parameter in the ome.tif and in the image calibration
+									 */
+									progress.updateBarText("Verify Z position information with original OPERA index file (OPERA ID " + imageLabelOPERA + ")");
+									double tempZStepSizeInMicron;
+									{
+										Node tempZNode;
+										double tempAbsZValue;
+										String previousPlaneImageID = "", currentPlaneImageID = "";
+										Length previousPlaneAbsZ = null, currentPlaneAbsZ;
+										Unit<Length> unitForComparingValues = UNITS.MICROMETER, currentPlaneAbsZUnit;
+										
+										LinkedList<Double> observedZValues = new LinkedList<Double>();
+										LinkedList<Integer> observedZValueOccurences = new LinkedList<Integer>();
+										
+										String imageLabelOPERAStart = imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"));
+										
+										NodeList nl = null;
 										try {
-											currentPlaneImageID = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "id").getTextContent();
-											// Only consider first channels for extracting z information, thus skip all nodes related to other channels:
-											if(!currentPlaneImageID.endsWith("R1")) continue;
-											 // Skip nodes not belonging to this image:
-											if(!currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P")))) continue;
-																		
-											tempZNode = getFirstNodeWithName(imagesNode.getChildNodes().item(img).getChildNodes(), "AbsPositionZ");
-											currentPlaneAbsZUnit = getLengthUnitFromNodeAttribute(tempZNode);
-											currentPlaneAbsZ = new Length (Double.parseDouble(tempZNode.getTextContent()), currentPlaneAbsZUnit);
-											
-											if(previousPlaneImageID.equals("")) {
-												previousPlaneImageID = currentPlaneImageID;
-												previousPlaneAbsZ = currentPlaneAbsZ;
-												continue screening;
-											}else if(Integer.parseInt(currentPlaneImageID.substring(currentPlaneImageID.lastIndexOf("P")+1,currentPlaneImageID.lastIndexOf("R"))) == Integer.parseInt(previousPlaneImageID.substring(previousPlaneImageID.lastIndexOf("P")+1,previousPlaneImageID.lastIndexOf("R")))+1) {
-												//This condition is met only if the plane is a follow up plane of the previous stored plane
-												//Now we verify that the remaining identifiers match and if so we create a z value
-												if(currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(previousPlaneImageID.substring(0,previousPlaneImageID.lastIndexOf("P")))) {
-													tempAbsZValue = currentPlaneAbsZ.value(unitForComparingValues).doubleValue() - previousPlaneAbsZ.value(unitForComparingValues).doubleValue();
-													tempAbsZValue = Double.parseDouble(String.format("%." + String.valueOf(2) + "g%n", tempAbsZValue));
-													if(tempAbsZValue < 0) tempAbsZValue *= -1.0;
-													for(int zV = 0; zV < observedZValues.size();zV++) {
-														if(observedZValues.get(zV) == tempAbsZValue) {
-															observedZValueOccurences.set(zV,observedZValueOccurences.get(zV)+1);
-															previousPlaneImageID = currentPlaneImageID;
-															previousPlaneAbsZ = currentPlaneAbsZ;
-															continue screening;
-														}
-													}
-													observedZValues.add(tempAbsZValue);
-													observedZValueOccurences.add(1);
-													
-													if(extendedLogging || LOGZDISTFINDING) {
-														progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
-																+ imageLabelOPERA
-																+ ": Added a calculated ZValue (" + observedZValues
-																+ ") based on comparing the AbsPositionZ of "
-																+ previousPlaneImageID
-																+ " (Z value of Length object: "
-																+ previousPlaneAbsZ.value(unitForComparingValues)
-																+ " " 
-																+ unitForComparingValues.getSymbol()
-																+ ") and "
-																+ currentPlaneImageID
-																+ "(Z text: "
-																+ tempZNode.getTextContent()
-																+ " " 
-																+ currentPlaneAbsZUnit.getSymbol()
-																+ "). "
-																,
-																ProgressDialog.LOG);
-													}
-													previousPlaneImageID = currentPlaneImageID;
-													previousPlaneAbsZ = currentPlaneAbsZ;
-													continue screening;
-												}else {
-													previousPlaneImageID = currentPlaneImageID;
-													previousPlaneAbsZ = currentPlaneAbsZ;
-													continue screening;
-												}
-											}else {
-												previousPlaneImageID = currentPlaneImageID;
-												previousPlaneAbsZ = currentPlaneAbsZ;
-												continue screening;
-											}							
-										}catch(Exception e) {
+											XPathExpression expr = xp.compile("//Image[id[starts-with(text(),'" + imageLabelOPERAStart + "')]]");
+											nl = (NodeList) expr.evaluate(metaDoc, XPathConstants.NODESET);
+//											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", xpath for image nodes starting with " + imageLabelOPERAStart + " yields " + nl.getLength() + "nodes!",
+//													ProgressDialog.LOG);
+										} catch (XPathExpressionException e) {
 											String out = "";
 											for (int err = 0; err < e.getStackTrace().length; err++) {
 												out += " \n " + e.getStackTrace()[err].toString();
 											}
+											progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Could not fetch image nodes beginning with id " + imageLabelOPERAStart 
+													+ "\nError message: " + e.getMessage()
+													+ "\nError localized message: " + e.getLocalizedMessage()
+													+ "\nError cause: " + e.getCause() 
+													+ "\nDetailed message:"
+													+ "\n" + out,
+													ProgressDialog.ERROR);
+										}
+										
+										screening: for(int img = 0; img < nl.getLength(); img++){
+											Node tempNode = nl.item(img);
+											if(!tempNode.hasChildNodes()) {
+//												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", xpath for image nodes starting with " + imageLabelOPERAStart + " yields node to be skipped:"
+//														+ img,
+//														ProgressDialog.LOG);
+												continue;
+											}
+											try {
+												currentPlaneImageID = getFirstNodeWithName(tempNode.getChildNodes(), "id").getTextContent();
+//												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", xpath for image nodes starting with " + imageLabelOPERAStart + " yields node "
+//														+ currentPlaneImageID,
+//														ProgressDialog.LOG);												
+												// Only consider first channels for extracting z information, thus skip all nodes related to other channels:
+												if(!currentPlaneImageID.endsWith("R1")) continue;
+												 // Skip nodes not belonging to this image:
+												if(!currentPlaneImageID.startsWith(imageLabelOPERAStart)) continue;
+//												if(!currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(imageLabelOPERAStart)) continue;
+												
+												tempZNode = getFirstNodeWithName(tempNode.getChildNodes(), "AbsPositionZ");
+												currentPlaneAbsZUnit = getLengthUnitFromNodeAttribute(tempZNode);
+												currentPlaneAbsZ = new Length (Double.parseDouble(tempZNode.getTextContent()), currentPlaneAbsZUnit);
+												
+												if(previousPlaneImageID.equals("")) {
+													previousPlaneImageID = currentPlaneImageID;
+													previousPlaneAbsZ = currentPlaneAbsZ;
+													continue screening;
+												}else if(Integer.parseInt(currentPlaneImageID.substring(currentPlaneImageID.lastIndexOf("P")+1,currentPlaneImageID.lastIndexOf("R"))) == Integer.parseInt(previousPlaneImageID.substring(previousPlaneImageID.lastIndexOf("P")+1,previousPlaneImageID.lastIndexOf("R")))+1) {
+													//This condition is met only if the plane is a follow up plane of the previous stored plane
+													//Now we verify that the remaining identifiers match and if so we create a z value
+													if(currentPlaneImageID.substring(0,currentPlaneImageID.lastIndexOf("P")).equals(previousPlaneImageID.substring(0,previousPlaneImageID.lastIndexOf("P")))) {
+														tempAbsZValue = currentPlaneAbsZ.value(unitForComparingValues).doubleValue() - previousPlaneAbsZ.value(unitForComparingValues).doubleValue();
+														tempAbsZValue = Double.parseDouble(String.format("%." + String.valueOf(2) + "g%n", tempAbsZValue));
+														if(tempAbsZValue < 0) tempAbsZValue *= -1.0;
+														for(int zV = 0; zV < observedZValues.size();zV++) {
+															if(observedZValues.get(zV) == tempAbsZValue) {
+																observedZValueOccurences.set(zV,observedZValueOccurences.get(zV)+1);
+																previousPlaneImageID = currentPlaneImageID;
+																previousPlaneAbsZ = currentPlaneAbsZ;
+																continue screening;
+															}
+														}
+														observedZValues.add(tempAbsZValue);
+														observedZValueOccurences.add(1);
+														
+														if(extendedLogging || LOGZDISTFINDING) {
+															progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
+																	+ imageLabelOPERA
+																	+ ": Added a calculated ZValue (" + observedZValues
+																	+ ") based on comparing the AbsPositionZ of "
+																	+ previousPlaneImageID
+																	+ " (Z value of Length object: "
+																	+ previousPlaneAbsZ.value(unitForComparingValues)
+																	+ " " 
+																	+ unitForComparingValues.getSymbol()
+																	+ ") and "
+																	+ currentPlaneImageID
+																	+ "(Z text: "
+																	+ tempZNode.getTextContent()
+																	+ " " 
+																	+ currentPlaneAbsZUnit.getSymbol()
+																	+ "). "
+																	,
+																	ProgressDialog.LOG);
+														}
+														previousPlaneImageID = currentPlaneImageID;
+														previousPlaneAbsZ = currentPlaneAbsZ;
+														continue screening;
+													}else {
+														previousPlaneImageID = currentPlaneImageID;
+														previousPlaneAbsZ = currentPlaneAbsZ;
+														continue screening;
+													}
+												}else {
+													previousPlaneImageID = currentPlaneImageID;
+													previousPlaneAbsZ = currentPlaneAbsZ;
+													continue screening;
+												}							
+											}catch(Exception e) {
+												String out = "";
+												for (int err = 0; err < e.getStackTrace().length; err++) {
+													out += " \n " + e.getStackTrace()[err].toString();
+												}
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
+														+ imageLabelOPERA
+														+ ": Could not find Z information in image node " 
+														+ img 
+														+ " to determine Z information for the images starting with label"
+														+ imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"))
+														+ ". Node name: "
+														+ tempNode.getNodeName()
+														+ ". Node value: "
+														+ tempNode.getNodeValue()
+														+ ". Error " + e.getCause() + " - Detailed message:\n" + out,
+														ProgressDialog.ERROR);
+												continue screening;
+											}						
+										}
+										
+										/**
+										 * Checking the determined Z values
+										 */
+										tempZStepSizeInMicron = 0.0;
+										if(observedZValues.size() > 1) {
+											int tempCt = 0;
+											for(int i = 0; i < observedZValues.size(); i++) {
+												if(observedZValueOccurences.get(i) > tempCt) {
+													tempCt = observedZValueOccurences.get(i);
+													tempZStepSizeInMicron = observedZValues.get(i);
+												}
+											}
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
 													+ imageLabelOPERA
-													+ ": Could not find Z information in image node " 
-													+ img 
-													+ " to determine Z information for the images starting with label"
+													+ ": There are images with different Z spacings available in this OPERA output file for all images starting with " 
 													+ imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"))
-													+ ". Node name: "
-													+ imagesNode.getChildNodes().item(img).getNodeName()
-													+ ". Node value: "
-													+ imagesNode.getChildNodes().item(img).getNodeValue()
-													+ ". Error " + e.getCause() + " - Detailed message:\n" + out,
-													ProgressDialog.ERROR);
-											continue screening;
-										}						
-									}
-									
-									/**
-									 * Checking the determined Z values
-									 */
-									double tempZStepSizeInMicron = 0.0;
-									if(observedZValues.size() > 1) {
-										int tempCt = 0;
-										for(int i = 0; i < observedZValues.size(); i++) {
-											if(observedZValueOccurences.get(i) > tempCt) {
-												tempCt = observedZValueOccurences.get(i);
-												tempZStepSizeInMicron = observedZValues.get(i);
+													+ ". The following z steps were observed: "
+													+ observedZValues 
+													+ " with the observed frequencies of " 
+													+ observedZValueOccurences 
+													+ "."
+													+ "This program cannot guarantee accurate translation of Z step size information into the OME 'PixelsPhysicalSizeZ' parameter stored in the OME XML Metadata for this file."
+													+ "This program will save the most frequent observed Z step size ("
+													+ tempZStepSizeInMicron
+													+ " micron) as Physical Size Z.",
+													ProgressDialog.NOTIFICATION);
+										}else {
+											tempZStepSizeInMicron = observedZValues.get(0);
+											observedZValues = null;
+											observedZValueOccurences = null;
+											if(extendedLogging || LOGZDISTFINDING) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+														+ ", image with ID "
+														+ imageLabelOPERA
+														+ ": Found Z step size in metadata to compare to the OME 'PixelsPhysicalSizeZ' parameter in OME metadata - value " + tempZStepSizeInMicron + ".",
+														ProgressDialog.LOG);
 											}
 										}
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
-												+ imageLabelOPERA
-												+ ": There are images with different Z spacings available in this OPERA output file for all images starting with " 
-												+ imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"))
-												+ ". The following z steps were observed: "
-												+ observedZValues 
-												+ " with the observed frequencies of " 
-												+ observedZValueOccurences 
-												+ "."
-												+ "This program cannot guarantee accurate translation of Z step size information into the OME 'PixelsPhysicalSizeZ' parameter stored in the OME XML Metadata for this file."
-												+ "This program will save the most frequent observed Z step size ("
-												+ tempZStepSizeInMicron
-												+ " micron) as Physical Size Z.",
-												ProgressDialog.NOTIFICATION);
-									}else {
-										tempZStepSizeInMicron = observedZValues.get(0);
-										observedZValues = null;
-										observedZValueOccurences = null;
-										if(extendedLogging || LOGZDISTFINDING) {
+										
+										if(meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue() != tempZStepSizeInMicron) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
 													+ ", image with ID "
 													+ imageLabelOPERA
-													+ ": Found Z step size in metadata to compare to the OME 'PixelsPhysicalSizeZ' parameter in OME metadata - value " + tempZStepSizeInMicron + ".",
-													ProgressDialog.LOG);
-										}
-									}
-									
-									if(meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue() != tempZStepSizeInMicron) {
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
-												+ ", image with ID "
-												+ imageLabelOPERA
-												+ ": OME 'PixelsPhysicalSizeZ' parameter in OME metadata ("
-												+ meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue()
-												+ " "
-												+ UNITS.MICROMETER.getSymbol()
-												+ ") was different compared to what this program read from the OPERA XML metadata ("
-												+ tempZStepSizeInMicron 
-												+ " " 
-												+ UNITS.MICROMETER.getSymbol()
-												+ "). Replacing the 'PixelsPhysicalSizeZ' value in OME metadata with " 
-												+ tempZStepSizeInMicron 
-												+ " " 
-												+ UNITS.MICROMETER.getSymbol()+ ".",
-												ProgressDialog.LOG);	
-										//Since we store the PhysicalSize parameteres generally in meter, convert to meter here, too:
-										meta.setPixelsPhysicalSizeZ(new Length(tempZStepSizeInMicron / 1000.0 / 1000.0,UNITS.METER), imageIndex);
-									}else if(!meta.getPixelsPhysicalSizeZ(imageIndex).unit().equals(UNITS.METER)) {
-										meta.setPixelsPhysicalSizeZ(new Length(meta.getPixelsPhysicalSizeZ(imageIndex).value(UNITS.METER),UNITS.METER), imageIndex);
-										if(extendedLogging || LOGZDISTFINDING) {
-											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
-													+ ", image with ID "
-													+ imageLabelOPERA
-													+ ": Found unit for the OME value 'PixelsPhysicalSizeZ' to be other than meter - converted the value to METER: " 
-													+ meta.getPixelsPhysicalSizeZ(imageIndex) 
-													+ ".",
-													ProgressDialog.LOG);
+													+ ": OME 'PixelsPhysicalSizeZ' parameter in OME metadata ("
+													+ meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue()
+													+ " "
+													+ UNITS.MICROMETER.getSymbol()
+													+ ") was different compared to what this program read from the OPERA XML metadata ("
+													+ tempZStepSizeInMicron 
+													+ " " 
+													+ UNITS.MICROMETER.getSymbol()
+													+ "). Replacing the 'PixelsPhysicalSizeZ' value in OME metadata with " 
+													+ tempZStepSizeInMicron 
+													+ " " 
+													+ UNITS.MICROMETER.getSymbol()+ ".",
+													ProgressDialog.LOG);	
+											//Since we store the PhysicalSize parameteres generally in meter, convert to meter here, too:
+											meta.setPixelsPhysicalSizeZ(new Length(tempZStepSizeInMicron / 1000.0 / 1000.0,UNITS.METER), imageIndex);
+										}else if(!meta.getPixelsPhysicalSizeZ(imageIndex).unit().equals(UNITS.METER)) {
+											meta.setPixelsPhysicalSizeZ(new Length(meta.getPixelsPhysicalSizeZ(imageIndex).value(UNITS.METER),UNITS.METER), imageIndex);
+											if(extendedLogging || LOGZDISTFINDING) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+														+ ", image with ID "
+														+ imageLabelOPERA
+														+ ": Found unit for the OME value 'PixelsPhysicalSizeZ' to be other than meter - converted the value to METER: " 
+														+ meta.getPixelsPhysicalSizeZ(imageIndex) 
+														+ ".",
+														ProgressDialog.LOG);
+											}
 										}
 									}
 								}
 								
-
 								progress.updateBarText("Transfer missing metadata from original OPERA index file to OME metadata (OPERA ID " + imageLabelOPERA + ")");																	
 								/**
 								 * Generate instrument in metadata, use following information
@@ -1302,7 +1358,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 																			
 									Node planeImageNode = null;									
 									try {
-										planeImageNode = getImageNodeWithID_OPERAMETADATA(imagesNode.getChildNodes(), OPERAString);
+										planeImageNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(), OPERAString);
 									}catch(java.lang.NullPointerException e) {
 										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", plane " + (p+1) + ":" + "Searching node " 
 												+ OPERAString
@@ -1379,7 +1435,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 * Set channel information
 								 * */
 								for(int channelId = 0; channelId < nChannels; channelId++) {
-									Node channelImageNode = getImageNodeWithID_OPERAMETADATA(imagesNode.getChildNodes(),
+									Node channelImageNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(),
 											imageLabelOPERA.substring(0,imageLabelOPERA.length()-1)+String.valueOf(channelId+1));
 									if(channelImageNode==null) {
 										progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
@@ -1734,22 +1790,24 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								if(newMetadataFile.exists()) {
 									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata existed already (" + newMetadataFile.getAbsolutePath() + ")", ProgressDialog.LOG);
 								}else {
-									new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator")).mkdirs();
-									FileUtils.copyFile(metaDataFile, newMetadataFile);
-									if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Saved meta data file (" + metaDataFile + ") as " + newMetadataFile.getAbsolutePath(), ProgressDialog.LOG);
-									progress.updateBarText("Saved meta data file (" + metaDataFile + ") as " + newMetadataFile.getAbsolutePath());
-									
+									new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator")).mkdirs();									
 									/** 
 									 * Clean meatadata from unneccessary information
 									 */
+									progress.updateBarText("Copying metadata xml...");
 									{
-										Document tempDoc; 
+										Document tempDoc;
 										try {
 											DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 											DocumentBuilder db = dbf.newDocumentBuilder();
-											tempDoc = db.parse(newMetadataFile);
-											tempDoc.getDocumentElement().normalize();
-										} catch (SAXException | IOException | ParserConfigurationException e) {
+											
+											//Create a new document and copy it.
+											tempDoc = db.newDocument();			
+										    Node originalRoot = metaDoc.getDocumentElement();
+									        Node copiedRoot = tempDoc.importNode(originalRoot, true);
+									        tempDoc.appendChild(copiedRoot);
+//										} catch (SAXException | IOException | ParserConfigurationException e) {
+										} catch (ParserConfigurationException e) {
 											String out = "";
 											for (int err = 0; err < e.getStackTrace().length; err++) {
 												out += " \n " + e.getStackTrace()[err].toString();
@@ -2138,40 +2196,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		}
 		return collectedString;
 	}
-	
-	/**
-	 * @param tempNode
-	 * @return name of the node with a number added
-	 */
-	private String getNumberedNodeName(Node tempNode) {
-		int sibblings = 0;
-		Node sibbling;
-		for(int cn = 0; cn < tempNode.getParentNode().getChildNodes().getLength(); cn++) {
-			if(tempNode.getParentNode().getChildNodes().item(cn).getNodeName().equals(tempNode.getNodeName())) {
-				sibblings ++;
-			}
-		}
 		
-		int id = 0;
-		if(sibblings > 1) {
-			sibbling = tempNode;
-			id = 0;
-			for(int cn = 0; cn < sibblings; cn++) {
-				sibbling = sibbling.getNextSibling();
-				if(sibbling == null) {
-					break;
-				}
-				if(sibbling.getNodeName().equals(tempNode.getNodeName())) {
-					id++;
-				}
-			}
-			id = sibblings - id - 1;
-			return tempNode.getNodeName() + " " + id;
-		}else {
-			return tempNode.getNodeName();					
-		}
-	}
-	
 	/**
 	 * Find the first node with a specific name in a NodeList
 	 * @param A NodeList in which a Node shall be found
@@ -2193,6 +2218,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	 * @param imageNodes: The list of image nodes in an OPERA XML Metadata file
 	 * @param id: The id for the image in that imageNodes list that shall be returned
 	 * @return First node in the list that has a subnode of type <id> with a value of @param id
+	 * 
+	 * @deprecated Use getImageNodeWithID_OPERAMETADATA_UsingXPath instead
 	 */
 	private Node getImageNodeWithID_OPERAMETADATA(NodeList imageNodes, String id) {
 		for(int n = 0; n < imageNodes.getLength(); n++) {
@@ -2203,6 +2230,40 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		}
 		return null;
 	}
+	
+	/**
+	 * Find the first node with a specific name in a NodeList
+	 * @param imageNodes: The list of image nodes in an OPERA XML Metadata file
+	 * @param id: The id for the image in that imageNodes list that shall be returned
+	 * @return First node in the list that has a subnode of type <id> with a value of @param id
+	 */
+	private Node getImageNodeWithID_OPERAMETADATA_UsingXPath(NodeList imageNodes, String id) {
+		NodeList nl = null;
+		try {
+			XPathExpression expr = xp.compile("//Image[id='" + id + "']");
+			nl = (NodeList) expr.evaluate(imageNodes, XPathConstants.NODESET);
+//			progress.notifyMessage("Xpath inquiry for image node " + id + " yielded " + nl.getLength() + " node(s)! Id of fetched node: " 
+//					+ "..." + nl.item(0).getNodeName()
+//					+ "..." + nl.item(0).getNodeValue()
+//					+ "..." + nl.item(0).getTextContent()
+//					+ "..." + getFirstNodeWithName(nl.item(0).getChildNodes(),"id").getTextContent(),
+//					ProgressDialog.LOG);			
+		} catch (XPathExpressionException e) {
+			String out = "";
+			for (int err = 0; err < e.getStackTrace().length; err++) {
+				out += " \n " + e.getStackTrace()[err].toString();
+			}
+			progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Could not fetch image node with id " + id 
+					+ "\nError message: " + e.getMessage()
+					+ "\nError localized message: " + e.getLocalizedMessage()
+					+ "\nError cause: " + e.getCause() 
+					+ "\nDetailed message:"
+					+ "\n" + out,
+					ProgressDialog.ERROR);
+		}
+		return nl.item(0);
+	}
+	
 	
 	private Unit<Time> getTimeUnitFromNodeAttribute(Node tempNode) {
 		Unit<Time> tempUnit = null;										
