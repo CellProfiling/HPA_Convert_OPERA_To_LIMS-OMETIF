@@ -602,7 +602,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				 * Under the main Node <Wells> all wells are listed as a <Well> node and image ids for the images in that well are noted
 				 * Under the main node <Images> each image is listed as an <Image> node, which has as childs all metadata for that image, including channel information, id, etc.
 				 */
-				{
+				{// TODO find way to not repetitively loaded original source file if possible! Give second set of metaDocs for the original file.
 					String tempPath = dir [task] + System.getProperty("file.separator") + name [task];					
 					if(tempPath.equals(loadedMetadataFilePath)) {
 						if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata file path: " + metadataFilePath + "", ProgressDialog.LOG);
@@ -840,15 +840,21 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									new File(tempDir + "Images" + System.getProperty("file.separator") + tempImgName), 
 									true);
 						} catch (IOException e) {
-							//TODO
-							e.printStackTrace();
-							return;
+							String out = "";
+							for (int err = 0; err < e.getStackTrace().length; err++) {
+								out += " \n " + e.getStackTrace()[err].toString();
+							}
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Error when copying images to the temp folder for fast loading (image ids starting with "
+									+ seriesName[task] + ")!\nError " + e.getCause() + " - Detailed message:\n" + out,
+									ProgressDialog.ERROR);
+							break running;
 						}
 					}
 					
 					if(!loadOPERAMetadatafile(newTemporaryMetadataFile.getAbsolutePath(), task)) {
-						IJ.error("Could not load new temp file");
-						//TODO
+						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not load new metadata file at " + newTemporaryMetadataFile.getAbsolutePath(),
+								ProgressDialog.ERROR);
+						break running;
 					}else {
 						if(extendedLogging) {
 							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata file loaded:" + loadingLog + "", loadingLogMode);
@@ -2480,6 +2486,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				try {
 					forceDeleteDirectory(new File(tempDir),2);							
 					//TODO Deletion does not work right now on windows... Could not find a solution for it
+					//TODO Try deleting also other temp folder!
 				} catch (IOException e) {
 					deleteManually = true;
 					String out = "";
