@@ -1606,7 +1606,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 													+ tempZStepSizeInMicron
 													+ " micron) as Physical Size Z.",
 													ProgressDialog.NOTIFICATION);
-										}else {
+										}else if (observedZValues.size() == 1){
 											tempZStepSizeInMicron = observedZValues.get(0);
 											observedZValues = null;
 											observedZValueOccurences = null;
@@ -1615,6 +1615,17 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 														+ ", image with ID "
 														+ imageLabelOPERA
 														+ ": Found Z step size in metadata to compare to the OME 'PixelsPhysicalSizeZ' parameter in OME metadata - value " + tempZStepSizeInMicron + ".",
+														ProgressDialog.LOG);
+											}
+										}else {
+											tempZStepSizeInMicron = 0.0;
+											observedZValues = null;
+											observedZValueOccurences = null;
+											if(extendedLogging || LOGZDISTFINDING) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+														+ ", image with ID "
+														+ imageLabelOPERA
+														+ ": Found no Z steps in metadata to compare to the OME 'PixelsPhysicalSizeZ' parameter in OME metadata - will compare to value " + tempZStepSizeInMicron + ".",
 														ProgressDialog.LOG);
 											}
 										}
@@ -3259,13 +3270,16 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				}
 //				progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " + tempMsg,
 //						ProgressDialog.NOTIFICATION);
-			}else {
+			}else if(observedZValues.size() == 1){
 				zStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(0);
 				observedZValues = null;
 //				if(extendedLogging || LOGZDISTFINDING) {
 //					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Found Z step size in metadata and will set it as image calibration - value " + observedZValues + ".",
 //							ProgressDialog.LOG); //TODO
 //				}
+			}else {
+				zStepSizeInMicronAcrossWholeOPERAFile = 0.0;
+				observedZValues = null;
 			}
 		}				
 		System.gc();	
