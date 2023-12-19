@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.1.0
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.1.1
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: November 27, 2023)
+* Date: September 11, 2023 (This Version: December 18, 2023)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -93,7 +93,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.1.0";
+	static final String PLUGINVERSION = "0.1.1";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -2460,7 +2460,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							+ "\nError cause: " + e.getCause() 
 							+ "\nDetailed message:"
 							+ "\n" + out,
-							ProgressDialog.ERROR);
+							ProgressDialog.NOTIFICATION);
 				} catch (NullPointerException e) {
 					String out = "";
 					for (int err = 0; err < e.getStackTrace().length; err++) {
@@ -2472,7 +2472,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							+ "\nError cause: " + e.getCause() 
 							+ "\nDetailed message:"
 							+ "\n" + out,
-							ProgressDialog.ERROR);
+							ProgressDialog.NOTIFICATION);
 				} catch (InterruptedException e) {
 					String out = "";
 					for (int err = 0; err < e.getStackTrace().length; err++) {
@@ -2484,7 +2484,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							+ "\nError cause: " + e.getCause() 
 							+ "\nDetailed message:"
 							+ "\n" + out,
-							ProgressDialog.ERROR);
+							ProgressDialog.NOTIFICATION);
 				}
 				
 				if(!loadViaBioformats && tempProjectDir != "") {
@@ -2504,7 +2504,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								+ "\nError cause: " + e.getCause() 
 								+ "\nDetailed message:"
 								+ "\n" + out,
-								ProgressDialog.ERROR);
+								ProgressDialog.NOTIFICATION);
 					} catch (NullPointerException e) {
 						String out = "";
 						for (int err = 0; err < e.getStackTrace().length; err++) {
@@ -2516,7 +2516,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								+ "\nError cause: " + e.getCause() 
 								+ "\nDetailed message:"
 								+ "\n" + out,
-								ProgressDialog.ERROR);
+								ProgressDialog.NOTIFICATION);
 					} catch (InterruptedException e) {
 						String out = "";
 						for (int err = 0; err < e.getStackTrace().length; err++) {
@@ -2528,7 +2528,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								+ "\nError cause: " + e.getCause() 
 								+ "\nDetailed message:"
 								+ "\n" + out,
-								ProgressDialog.ERROR);
+								ProgressDialog.NOTIFICATION);
 					}
 				}
 				
@@ -2563,7 +2563,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							+ "\nError cause: " + e.getCause() 
 							+ "\nDetailed message:"
 							+ "\n" + out,
-							ProgressDialog.ERROR);
+							ProgressDialog.NOTIFICATION);
 				} catch (NullPointerException e) {
 					deleteManually = true;
 					String out = "";
@@ -2576,7 +2576,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							+ "\nError cause: " + e.getCause() 
 							+ "\nDetailed message:"
 							+ "\n" + out,
-							ProgressDialog.ERROR);
+							ProgressDialog.NOTIFICATION);
 				} catch (InterruptedException e) {
 					deleteManually = true;
 					String out = "";
@@ -2589,7 +2589,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							+ "\nError cause: " + e.getCause() 
 							+ "\nDetailed message:"
 							+ "\n" + out,
-							ProgressDialog.ERROR);
+							ProgressDialog.NOTIFICATION);
 				}
 			}
 			
@@ -3502,8 +3502,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				if(srcLoadingLogMode != ProgressDialog.ERROR) {
 					srcLoadingLogMode = ProgressDialog.NOTIFICATION;
 				}
-			}else {
+			}else if(observedZValues.size() == 1){
 				srcZStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(0);
+				observedZValues = null;
+			}else {
+				srcZStepSizeInMicronAcrossWholeOPERAFile = 0.0;
 				observedZValues = null;
 			}
 		}				
