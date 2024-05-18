@@ -1,5 +1,5 @@
 # HPA_Convert_OPERA_To_LIMS-OMETIF
- An ImageJ plugin to convert Opera Phenix image output folders to OME Tif format suitable for the HPA LIMS system or for Memento upload. See more instructions under [User instructions](https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/tree/main#user-instructions) below.
+ An ImageJ plugin to convert image output folders created by the Opera Phenix or Operetta CLS High-Content microscopes (also called "Sonata") to OME Tif format suitable for the HPA LIMS system or for (Memento)[https://github.com/CellProfiling/memento] upload. See more instructions under [User instructions](https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/tree/main#user-instructions) below.
  
 Contact jan.hansen@scilifelab.se for help.
 
