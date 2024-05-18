@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.1.1
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.1
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: December 18, 2023)
+* Date: September 11, 2023 (This Version: May 17, 2024)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -93,7 +93,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.1.1";
+	static final String PLUGINVERSION = "0.2.1";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -127,7 +127,6 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	boolean logInitialFileScreening = false;
 	boolean logWholeOMEXMLComments = false;
 	
-	boolean loadViaBioformats = false;
 	boolean extendOnly = false;
 	
 	boolean cropImage = false;
@@ -161,6 +160,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	double srcZStepSizeInMicronAcrossWholeOPERAFile = -1.0;
 	String srcLoadingLog = "";
 	int srcLoadingLogMode = ProgressDialog.LOG;
+	String srcMetaXMLVersion = "1"; //Variants: 1, 2
 	
 	
 	// Temporary variables used for the individual OPERA metadata file
@@ -169,12 +169,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	String metadataFilePath = "";
 	File metaDataFile = null;
 	Document metaDoc = null;
-	Node imagesNode = null, wellsNode = null, platesNode = null;
+	Node imagesNode = null, wellsNode = null, platesNode = null, channelsNode = null;
 	double zStepSizeInMicronAcrossWholeOPERAFile = -1.0;
 	String loadingLog = "";
 	int loadingLogMode = ProgressDialog.LOG;
-	
-	
 	
 	// For xpath loading
 	XPathFactory xPathfactory = null;
@@ -275,152 +273,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		// -------------------------------LOAD FILES-----------------------------------
 		// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
-		ImporterOptions bfOptions = null;
-		if (loadViaBioformats) { // TODO remove option
-			/*
-			 * Explore file with bioformats
-			 * */
-			OpenFilesDialog od = new OpenFilesDialog(false);
-			od.setLocation(0, 0);
-			od.setVisible(true);
-
-			od.addWindowListener(new java.awt.event.WindowAdapter() {
-				public void windowClosing(WindowEvent winEvt) {
-					return;
-				}
-			});
-
-			// Waiting for od to be done
-			while (od.done == false) {
-				try {
-					Thread.currentThread().sleep(50);
-				} catch (Exception e) {
-				}
-			}
-			
-			tasks = od.filesToOpen.size();
-			name = new String[tasks];
-			seriesName = new String[tasks];
-			dir = new String[tasks];
-			series = new int [tasks];
-			totSeries = new int [tasks];
-			Arrays.fill(series, 0);
-			Arrays.fill(totSeries, 1);
-			
-			fullPath = new String[tasks];
-			for (int task = 0; task < tasks; task++) {
-				fullPath[task] = od.filesToOpen.get(task).toString();
-				name[task] = od.filesToOpen.get(task).getName();
-				dir[task] = od.filesToOpen.get(task).getParent();
-				seriesName [task] = "NA";
-				if(logInitialFileScreening) {
-					IJ.log("Logging information for selected index files" + " (time: " + FullDateFormatter2.format(new Date()) + ")");
-					IJ.log("ORIGINAL: " + fullPath[task]);
-					IJ.log("name:" + name[task]);
-					IJ.log("dir:" + dir[task]);					
-				}
-			}
-			
-			if (tasks == 0) {
-				new WaitForUserDialog("No folders selected!").show();
-				return;
-			}
-			
-			ImportProcess process;
-			for(int i = tasks-1; i >= 0; i--){
-				IJ.showProgress((tasks-i)/tasks);
-				try {
-					bfOptions = new ImporterOptions();
-					bfOptions.setId(""+dir[i]+ System.getProperty("file.separator") + name[i]+"");
-					bfOptions.setVirtual(true);
-					bfOptions.setOpenAllSeries(true);
-					bfOptions.setStackFormat(ImporterOptions.VIEW_NONE);
-															
-					if(logInitialFileScreening) {
-						IJ.log("Starting importer process for task " + i + ", time: " + FullDateFormatter2.format(new Date()) );
-					}
-					
-					process = new ImportProcess(bfOptions);
-					if (!process.execute()) {
-						IJ.error("Error when loading series information.");
-						return;
-					}
-
-					if(logInitialFileScreening) {
-						IJ.log("Importer process started for task " + i + ", time: " + FullDateFormatter2.format(new Date()));
-					}
-					
-					int newTasks = process.getSeriesCount();
-					
-					if(logInitialFileScreening) {
-						IJ.log("Fetched" + newTasks + " images for task " + i + ", time: " + FullDateFormatter2.format(new Date()));
-					}
-					
-					if(newTasks > 1) {
-						String [] nameTemp = new String [name.length+newTasks-1], 
-								dirTemp = new String [name.length+newTasks-1], 
-								seriesNameTemp = new String [name.length+newTasks-1];
-						int [] seriesTemp = new int [nameTemp.length],
-								totSeriesTemp = new int [nameTemp.length]; 
-						for(int j = 0; j < i; j++) {
-							nameTemp [j] = name [j]; 
-							dirTemp [j] = dir [j];
-							seriesTemp [j] = series [j];
-							seriesNameTemp [j] = seriesName [j];
-							totSeriesTemp [j] = totSeries [j];
-							
-						}
-						for(int j = 0; j < newTasks; j++) {
-							nameTemp [i+j] = name [i]; 
-							dirTemp [i+j] = dir [i];
-							seriesTemp [i+j] = j;
-							seriesNameTemp [j] = process.getSeriesLabel(j);
-							totSeriesTemp [i+j] = newTasks;
-							if(logInitialFileScreening) {
-								IJ.log("Feteched name for series: " + j + " in task " + i + ": " + seriesNameTemp [j] + ", time: " + FullDateFormatter2.format(new Date()));
-							}
-						}
-						for(int j = i+1; j < name.length; j++) {
-							nameTemp [j+newTasks-1] = name [j]; 
-							dirTemp [j+newTasks-1] = dir [j];
-							seriesTemp [j+newTasks-1] = series [j];
-							seriesNameTemp [j+newTasks-1] = seriesName [j];
-							totSeriesTemp [j+newTasks-1] = totSeries [j];
-						}
-						
-						//copy arrays
-
-						tasks = nameTemp.length;
-						name = new String [tasks];
-						dir = new String [tasks];
-						seriesName = new String [tasks];
-						series = new int [tasks];
-						totSeries = new int [tasks];
-						
-						for(int j = 0; j < nameTemp.length; j++) {
-							name [j] = nameTemp [j];
-							dir [j] = dirTemp [j];
-							seriesName [j] = seriesNameTemp [j];
-							series [j] = seriesTemp [j];
-							totSeries [j] = totSeriesTemp [j];
-							
-							if(logInitialFileScreening) {
-								IJ.log("Logging loaded tasks here: "  + ", time: " + FullDateFormatter2.format(new Date()));
-								IJ.log("ORIGINAL: " + name[i] + ", " + dir [i] + ", " + fullPath[i]);
-								IJ.log("series: " + (series[j]+1) + " of " + totSeries[j] + " with name: " + seriesName[j]);
-							}							
-						}
-					}
-					process = null;
-					bfOptions.setId("");
-				} catch (Exception e) {
-					IJ.log(e.getCause().getLocalizedMessage());
-					IJ.log(e.getCause().getMessage());
-					e.printStackTrace();
-				}
-				System.gc();
-			}
-		}else {
+		{
 			/**
 			 * Explore XML file to read information
 			 */
@@ -471,7 +324,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			}
 			
 			/**
-			 * Now open index files and use them to load tasks  TODO
+			 * Now open index files and use them to load tasks
+			 * TODO
 			 */
 			for(int task = tasks-1; task >= 0; task--){
 				IJ.showProgress((tasks-task)/tasks);
@@ -599,6 +453,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		}		
 		DOMSource source;
 		FileWriter writer;
+		ImporterOptions bfOptions = null;
 		
 		for (int task = 0; task < tasks; task++) {
 			running: while (continueProcessing) {
@@ -625,10 +480,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 						if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata file path: " + srcMetadataFilePath + "", ProgressDialog.LOG);
 						if(extendedLogging) {
 							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata file was already loaded in task " + (loadedSrcTask + 1) 
-									+ " and thus not reloaded. The logging information from loading the metadatafile were:" + srcLoadingLog + "", srcLoadingLogMode);
+									+ " and thus not reloaded. The logging information from loading the metadatafile were:\n" + srcLoadingLog + "", srcLoadingLogMode);
 						}else if(loadingLogMode != ProgressDialog.LOG) {
 							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata file was already loaded in task " + (loadedSrcTask + 1) 
-									+ " and thus not reloaded. There were WARNINGS! See log information here:" + srcLoadingLog + "", srcLoadingLogMode);
+									+ " and thus not reloaded. There were WARNINGS! See log information here:\n" + srcLoadingLog + "", srcLoadingLogMode);
 						}						
 					}else{
 						if(!loadSourceOPERAMetadatafile(tempPath, task)) {
@@ -648,19 +503,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				Document tempMetaDoc = null;
 				File newTemporaryMetadataFile = null;
 				String tempProjectDir = "";
-				if(loadViaBioformats){
-					loadedMetadataFilePath = loadedSrcMetadataFilePath;
-					loadedTask = loadedSrcTask;
-					metadataFilePath = srcMetadataFilePath;
-					metaDataFile = srcMetaDataFile;
-					metaDoc = srcMetaDoc;
-					imagesNode = srcImagesNode;
-					wellsNode = srcWellsNode;
-					platesNode = srcPlatesNode;
-					zStepSizeInMicronAcrossWholeOPERAFile = srcZStepSizeInMicronAcrossWholeOPERAFile;
-					loadingLog = srcLoadingLog ;
-					loadingLogMode = srcLoadingLogMode;
-				}else{
+				{
 					/**
 					 * We create a temporary folder only for the image we want to process and copy files that we need there
 					 */
@@ -821,39 +664,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				 */				
 				progress.updateBarText("Loading images via BioFormats...");
 				ImagePlus imp = null;				
-				if(loadViaBioformats){
-					try {
-						//bio format reader
-						if(bfOptions.getId().equals(dir[task]+ System.getProperty("file.separator") + name[task])) {
-							//already loaded
-						}else {
-							bfOptions = new ImporterOptions();
-			   				bfOptions.setId(""+dir[task]+ System.getProperty("file.separator") + name[task]+"");
-			   				bfOptions.setVirtual(false);
-			   				bfOptions.setAutoscale(true);
-			   				bfOptions.setColorMode(ImporterOptions.COLOR_MODE_COMPOSITE);
-						}		   				
-		   				for(int i = 0; i < totSeries[task]; i++) {
-		   					if(i==series[task]) {
-		   						bfOptions.setSeriesOn(i, true);
-		   					}else {
-		   						bfOptions.setSeriesOn(i, false);
-		   					}
-		   				}		   				
-		   			    imp = BF.openImagePlus(bfOptions) [0];
-		   				imp.setDisplayMode(IJ.COMPOSITE);						
-					} catch (Exception e) {
-						String out = "";
-						for (int err = 0; err < e.getStackTrace().length; err++) {
-							out += " \n " + e.getStackTrace()[err].toString();
-						}
-						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process "
-								+ series[task] + " - Error " + e.getCause() + " - Detailed message:\n" + out,
-								ProgressDialog.ERROR);
-						break running;
-					}
-					System.gc();
-				}else {
+				{
 					//Load from the new created project (if not loaded via bioformats)
 					try {
 						//bio format reader
@@ -863,7 +674,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		   				bfOptions.setAutoscale(true);
 		   				bfOptions.setColorMode(ImporterOptions.COLOR_MODE_COMPOSITE);
 		   				bfOptions.setOpenAllSeries(true);
-		   				ImagePlus imps [] = BF.openImagePlus(bfOptions);
+		   				ImagePlus imps [] = BF.openImagePlus(bfOptions); // PROBLEM
 		   				if(imps.length > 1) {
 							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process "
 									+ series[task] + " - Error: Too many series in temp file!",
@@ -1156,9 +967,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 */
 								progress.updateBarText("Searching the metadata note in the original OPERA index file for image " + omeTifFileName);
 								String imageLabelOPERA = getOPERAString(wellRow, wellColumn, imageT, wellSampleIndex, imageZ, imageC);
-								if(!loadViaBioformats) {
-									imageLabelOPERA = seriesName[task] + "P" + String.valueOf(imageZ+1) + "R" + String.valueOf(imageC+1); //TODO
-								}
+								imageLabelOPERA = seriesName[task] + "P" + String.valueOf(imageZ+1) + "R" + String.valueOf(imageC+1); //TODO
+								
 								if(extendedLogging)	progress.notifyMessage("Reconstructed reference in OPERA metadata " + imageLabelOPERA, ProgressDialog.LOG);
 								
 								Node imageNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(), imageLabelOPERA);
@@ -1229,17 +1039,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * */
 									{
 										
-										String OPERAString = getOPERAString(wellRow, wellColumn, 
-												meta.getPlaneTheT(imageIndex, p).getValue(),
-												wellSampleIndex,
-												meta.getPlaneTheZ(imageIndex, p).getValue(), 
-												meta.getPlaneTheC(imageIndex, p).getValue());
-										
-										if(!loadViaBioformats){//TODO
-											OPERAString = seriesName[task];
-											OPERAString += "P" + String.valueOf(meta.getPlaneTheZ(imageIndex, p).getValue()+1);
-											OPERAString += "R" + String.valueOf(meta.getPlaneTheC(imageIndex, p).getValue()+1);
-										}
+										String OPERAString = seriesName[task];
+										OPERAString += "P" + String.valueOf(meta.getPlaneTheZ(imageIndex, p).getValue()+1);
+										OPERAString += "R" + String.valueOf(meta.getPlaneTheC(imageIndex, p).getValue()+1);
 										
 										Node planeImageNode = null;									
 										try {
@@ -1342,12 +1144,29 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								
 								progress.updateBarText("Verify XY resolution information with original OPERA index file (OPERA ID " + imageLabelOPERA + ")");
 								{
+									
 									Node tempNode;
+									Node tempNode2;
 									Unit<Length> tempUnit;
 									Length tempLength;
 									double 	val1, val2;
 									int digitsToCompare;
 									String val1Str, val2Str;
+									
+									if(srcMetaXMLVersion.equals("1")){
+										tempNode = imageNode;
+										if(extendedLogging) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Using image node to check physical size X matches metadata (since metadata V1)!", ProgressDialog.LOG);
+										}
+									}else {
+										/*
+										 * In V2 metadata most acquisition information is stored in a separated channel node and not in an image node.
+										 */
+										tempNode = getChannelMasterNodeUsingXPath(metaDoc.getChildNodes(),String.valueOf(meta.getPlaneTheC(imageIndex, 0).getValue()+1));
+										if(extendedLogging) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Using channel node to check physical size X matches metadata (since metadata V" + srcMetaXMLVersion + ")!", ProgressDialog.LOG);
+										}
+									}
 									
 									/**
 									 * Verify that image resolution is same in metadata
@@ -1355,9 +1174,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * <ImageResolutionY Unit="m">9.4916838247105038E-08</ImageResolutionY>
 									 */
 									{
-										tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionX");
-										tempUnit = getLengthUnitFromNodeAttribute(tempNode);
-										tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()), 
+										tempNode2 = getFirstNodeWithName(tempNode.getChildNodes(), "ImageResolutionX");
+										
+										tempUnit = getLengthUnitFromNodeAttribute(tempNode2);
+										tempLength = FormatTools.createLength(Double.parseDouble(tempNode2.getTextContent()), 
 												tempUnit);
 
 										val1 = meta.getPixelsPhysicalSizeX(imageIndex).value(tempUnit).doubleValue();
@@ -1387,7 +1207,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 													+ " " 
 													+ tempUnit.getSymbol()
 													+ " (Original entry "
-													+ tempNode.getTextContent()
+													+ tempNode2.getTextContent()
 													+ " "
 													+ tempUnit.getSymbol()
 													+ "). For comparison these values were converted to " + digitsToCompare + " digits as: "
@@ -1399,9 +1219,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										}
 									}
 									{
-										tempNode = getFirstNodeWithName(imageNode.getChildNodes(), "ImageResolutionY");
-										tempUnit = getLengthUnitFromNodeAttribute(tempNode);
-										tempLength = FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()), 
+										tempNode2 = getFirstNodeWithName(tempNode.getChildNodes(), "ImageResolutionY");
+										tempUnit = getLengthUnitFromNodeAttribute(tempNode2);
+										tempLength = FormatTools.createLength(Double.parseDouble(tempNode2.getTextContent()), 
 												tempUnit);
 
 										val1 = meta.getPixelsPhysicalSizeY(imageIndex).value(tempUnit).doubleValue();
@@ -1431,7 +1251,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 													+ " " 
 													+ tempUnit.getSymbol()
 													+ " (Original entry "
-													+ tempNode.getTextContent()
+													+ tempNode2.getTextContent()
 													+ " "
 													+ tempUnit.getSymbol()
 													+ "). For comparison these values were converted to " + digitsToCompare + " digits as: "
@@ -1443,6 +1263,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										}
 									}
 								}
+								
 								{
 									/**
 									 * Verify and eventually correct the PhysicalSizeZ parameter in the ome.tif and in the image calibration
@@ -1664,69 +1485,80 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									}
 								}
 								
-								progress.updateBarText("Transfer missing metadata from original OPERA index file to OME metadata (OPERA ID " + imageLabelOPERA + ")");																	
-								/**
-								 * Generate instrument in metadata, use following information
-								 * <AcquisitionType>NipkowConfocal</AcquisitionType>
-								 * */
-								meta.setInstrumentID("Instrument:0", 0);
-								meta.setImageInstrumentRef("Instrument:0", imageIndex);
-								meta.setMicroscopeType(MicroscopeType.fromString("Other"), 0);
+								progress.updateBarText("Transfer missing metadata from original OPERA index file to OME metadata (OPERA ID " + imageLabelOPERA + ")");
 								{
-									String model = getFirstNodeWithName(imageNode.getChildNodes(), "AcquisitionType").getTextContent(); // "NipkowConfocal"
-									meta.setMicroscopeModel(model, 0);
+									//Find node with information about the acquisition
+									Node srcNode;
+									if(srcMetaXMLVersion.equals("1")){
+										srcNode = imageNode;
+									}else {
+										/*
+										 * In V2 metadata most acquisition information is stored in a separated channel node and not in an image node.
+										 */
+										srcNode = getChannelMasterNodeUsingXPath(metaDoc.getChildNodes(),String.valueOf(meta.getPlaneTheC(imageIndex, 0).getValue()+1));
+									}
+									
+									/**
+									 * Generate instrument in metadata, use following information
+									 * <AcquisitionType>NipkowConfocal</AcquisitionType>
+									 * */
+									meta.setInstrumentID("Instrument:0", 0);
+									meta.setImageInstrumentRef("Instrument:0", imageIndex);
+									meta.setMicroscopeType(MicroscopeType.fromString("Other"), 0);
+									{
+										String model = getFirstNodeWithName(srcNode.getChildNodes(), "AcquisitionType").getTextContent(); // "NipkowConfocal"
+										meta.setMicroscopeModel(model, 0);
+										if(extendedLogging) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Transfered microscope model (Original: " 
+													+ model
+													+ ") and stored as "
+													+ meta.getMicroscopeModel(0)
+													+ ".", ProgressDialog.LOG);
+										}
+									}
+									{
+										/**
+										 *  Transferring the Microscope Serial Number
+										 *  OPERA files have no serial number and thus, we are using the InstrumentType as Serial Number
+										 *  <InstrumentType>Phenix</InstrumentType>
+										 */
+										meta.setMicroscopeSerialNumber(metaDoc.getElementsByTagName("InstrumentType").item(0).getTextContent(), 0);
+										if(selectedImageType.equals(imageType[0])) { // Input as OPERA Phenix has been selected, Revvity is the manufacturer of Opera Phenix
+											meta.setMicroscopeManufacturer("Revvity, Inc.", 0);
+										}								
+									}
+									
+									
+									/**
+									 * Fetch objective stats from specifications
+									 * <ObjectiveNA Unit="">1.15</ObjectiveNA>	
+									 * <ObjectiveMagnification Unit="">63</ObjectiveMagnification>
+									 */
+									String objectiveID = "Objective:0";
+									meta.setObjectiveID(objectiveID, 0, 0);
+									// Now assign the objective to the image:
+									meta.setObjectiveSettingsID(objectiveID, imageIndex);
+									// From here one extend the settings for the objective
+									meta.setObjectiveLensNA(Double.parseDouble(getFirstNodeWithName(srcNode.getChildNodes(), "ObjectiveNA").getTextContent()),
+											0,0);
 									if(extendedLogging) {
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Transfered microscope model (Original: " 
-												+ model
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Transfered objective NA (Original: " 
+												+ getFirstNodeWithName(srcNode.getChildNodes(), "ObjectiveNA").getTextContent() 
 												+ ") and stored as "
-												+ meta.getMicroscopeModel(0)
+												+ meta.getObjectiveLensNA(0, 0)
+												+ ".", ProgressDialog.LOG);
+									}
+									
+									meta.setObjectiveNominalMagnification(Double.parseDouble(getFirstNodeWithName(srcNode.getChildNodes(), "ObjectiveMagnification").getTextContent()),
+											0, 0);
+									if(extendedLogging) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Transfered objective Nominal Magnification (Original: " 
+												+ getFirstNodeWithName(srcNode.getChildNodes(), "ObjectiveMagnification").getTextContent() 
+												+ ") and stored as "
+												+ meta.getObjectiveNominalMagnification(0, 0)
 												+ ".", ProgressDialog.LOG);
 									}
 								}
-								{
-									/**
-									 *  Transferring the Microscope Serial Number
-									 *  OPERA files have no serial number and thus, we are using the InstrumentType as Serial Number
-									 *  <InstrumentType>Phenix</InstrumentType>
-									 */
-									meta.setMicroscopeSerialNumber(metaDoc.getElementsByTagName("InstrumentType").item(0).getTextContent(), 0);
-									if(selectedImageType.equals(imageType[0])) { // Input as OPERA Phenix has been selected, Revvity is the manufacturer of Opera Phenix
-										meta.setMicroscopeManufacturer("Revvity, Inc.", 0);
-									}								
-								}
-								
-								
-								/**
-								 * Fetch objective stats from specifications
-								 * <ObjectiveNA Unit="">1.15</ObjectiveNA>	
-								 * <ObjectiveMagnification Unit="">63</ObjectiveMagnification>
-								 */
-								String objectiveID = "Objective:0";
-								meta.setObjectiveID(objectiveID, 0, 0);
-								// Now assign the objective to the image:
-								meta.setObjectiveSettingsID(objectiveID, imageIndex);
-								// From here one extend the settings for the objective
-								meta.setObjectiveLensNA(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getTextContent()),
-										0,0);
-								if(extendedLogging) {
-									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Transfered objective NA (Original: " 
-											+ getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveNA").getTextContent() 
-											+ ") and stored as "
-											+ meta.getObjectiveLensNA(0, 0)
-											+ ".", ProgressDialog.LOG);
-								}
-								
-								meta.setObjectiveNominalMagnification(Double.parseDouble(getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getTextContent()),
-										0, 0);
-								if(extendedLogging) {
-									progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ":" + "Transfered objective Nominal Magnification (Original: " 
-											+ getFirstNodeWithName(imageNode.getChildNodes(), "ObjectiveMagnification").getTextContent() 
-											+ ") and stored as "
-											+ meta.getObjectiveNominalMagnification(0, 0)
-											+ ".", ProgressDialog.LOG);
-								}
-								
-								
 								
 								/** Find out the well sample time from time stamps for individual planes
 								 *	<AbsTime>2023-09-14T14:50:58.43+02:00</AbsTime>
@@ -1734,17 +1566,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								
 								ome.xml.model.primitives.Timestamp start = null, end = null;									
 								for(int p = 0; p < meta.getPlaneCount(imageIndex); p++) {
-									String OPERAString = getOPERAString(wellRow, wellColumn, 
-											meta.getPlaneTheT(imageIndex, p).getValue(),
-											wellSampleIndex,
-											meta.getPlaneTheZ(imageIndex, p).getValue(), 
-											meta.getPlaneTheC(imageIndex, p).getValue());
-									
-									if(!loadViaBioformats){//TODO
-										OPERAString = seriesName[task];
-										OPERAString += "P" + String.valueOf(meta.getPlaneTheZ(imageIndex, p).getValue()+1);
-										OPERAString += "R" + String.valueOf(meta.getPlaneTheC(imageIndex, p).getValue()+1);
-									}
+									String OPERAString = seriesName[task];
+									OPERAString += "P" + String.valueOf(meta.getPlaneTheZ(imageIndex, p).getValue()+1);
+									OPERAString += "R" + String.valueOf(meta.getPlaneTheC(imageIndex, p).getValue()+1);
 									
 									Node planeImageNode = null;									
 									try {
@@ -1825,20 +1649,37 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								 * Set channel information
 								 * */
 								for(int channelId = 0; channelId < nChannels; channelId++) {
-									Node channelImageNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(),
-											imageLabelOPERA.substring(0,imageLabelOPERA.length()-1)+String.valueOf(channelId+1));
-									if(channelImageNode==null) {
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
-												+ ", channel" + (channelId+1) 
-												+ ":" + " Could not find the node with id " 
-												+ imageLabelOPERA.substring(0,imageLabelOPERA.length()-1)+String.valueOf(channelId+1)
-												+ " in image nodes in OPERA metadata xml.", ProgressDialog.LOG);
-									}else if(extendedLogging) {
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
-												+ ", channel" + (channelId+1) 
-												+ ":" + " Found the node with id " 
-												+ imageLabelOPERA.substring(0,imageLabelOPERA.length()-1)+String.valueOf(channelId+1)
-												+ " in image nodes in OPERA metadata xml.", ProgressDialog.LOG);
+									Node channelInfoNode;
+									if(srcMetaXMLVersion.equals("1")){
+										channelInfoNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(),
+												imageLabelOPERA.substring(0,imageLabelOPERA.length()-1)+String.valueOf(channelId+1));
+										if(channelInfoNode==null) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+													+ ", channel" + (channelId+1) 
+													+ ":" + " Could not find the node with id " 
+													+ imageLabelOPERA.substring(0,imageLabelOPERA.length()-1)+String.valueOf(channelId+1)
+													+ " in image nodes in OPERA metadata xml.", ProgressDialog.LOG);
+										}else if(extendedLogging) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+													+ ", channel" + (channelId+1) 
+													+ ":" + " Found the node with id " 
+													+ imageLabelOPERA.substring(0,imageLabelOPERA.length()-1)+String.valueOf(channelId+1)
+													+ " in image nodes in OPERA metadata xml.", ProgressDialog.LOG);
+										}
+									}else {
+										/*
+										 * In V2 metadata most acquisition information is stored in a separated channel node and not in an image node.
+										 */
+										channelInfoNode = getChannelMasterNodeUsingXPath(metaDoc.getChildNodes(),String.valueOf(channelId+1));
+										if(channelInfoNode==null) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+													+ ", channel" + (channelId+1) 
+													+ ":" + " Could not find the channel node in the OPERA metadata xml.", ProgressDialog.LOG);
+										}else if(extendedLogging) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+													+ ", channel" + (channelId+1) 
+													+ ":" + " Found the channel node in OPERA metadata xml.", ProgressDialog.LOG);
+										}
 									}
 									
 									/**
@@ -1847,7 +1688,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 */
 									int detectorId = meta.getDetectorCount(0);
 									{
-										Node tempNode = getFirstNodeWithName(channelImageNode.getChildNodes(), "CameraType");
+										Node tempNode = getFirstNodeWithName(channelInfoNode.getChildNodes(), "CameraType");
 										for(int dt = 0; dt < meta.getDetectorCount(0); dt++) {
 											if(meta.getDetectorModel(0, dt).equals(tempNode.getTextContent())) {
 												detectorId = dt;
@@ -1894,7 +1735,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * 	<MainExcitationWavelength Unit="nm">640</MainExcitationWavelength>
 									 */
 									{
-										Node tempNode = this.getFirstNodeWithName(channelImageNode.getChildNodes(), "MainExcitationWavelength");
+										Node tempNode = this.getFirstNodeWithName(channelInfoNode.getChildNodes(), "MainExcitationWavelength");
 										meta.setChannelExcitationWavelength(FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()),
 												this.getLengthUnitFromNodeAttribute(tempNode)),
 												imageIndex, channelId);
@@ -1917,7 +1758,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * 	<MainEmissionWavelength Unit="nm">706</MainEmissionWavelength>
 									 */
 									{
-										Node tempNode = this.getFirstNodeWithName(channelImageNode.getChildNodes(), "MainEmissionWavelength");
+										Node tempNode = this.getFirstNodeWithName(channelInfoNode.getChildNodes(), "MainEmissionWavelength");
 										meta.setChannelEmissionWavelength(FormatTools.createLength(Double.parseDouble(tempNode.getTextContent()),
 												this.getLengthUnitFromNodeAttribute(tempNode)),
 												imageIndex, channelId);
@@ -1941,8 +1782,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * 	<BinningY>1</BinningY>			
 									*/
 									{
-										String binString = getFirstNodeWithName(channelImageNode.getChildNodes(), "BinningX").getTextContent()
-												+ "x" + getFirstNodeWithName(channelImageNode.getChildNodes(), "BinningY").getTextContent();
+										String binString = getFirstNodeWithName(channelInfoNode.getChildNodes(), "BinningX").getTextContent()
+												+ "x" + getFirstNodeWithName(channelInfoNode.getChildNodes(), "BinningY").getTextContent();
 										meta.setDetectorSettingsBinning(Binning.fromString(binString), imageIndex, channelId);
 										if(extendedLogging) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
@@ -1960,7 +1801,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * <ChannelType>Fluorescence</ChannelType>
 									 */										
 									try {
-										meta.setChannelIlluminationType(IlluminationType.fromString(getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getTextContent()),
+										meta.setChannelIlluminationType(IlluminationType.fromString(getFirstNodeWithName(channelInfoNode.getChildNodes(), "IlluminationType").getTextContent()),
 												imageIndex, channelId);
 										if(extendedLogging) {
 											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
@@ -1968,14 +1809,14 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 													+ ": " 
 													+ "Added illumination type for channel " + channelId + " :" 
 													+ meta.getChannelIlluminationType(imageIndex, channelId)
-													+ "(Original entry " + getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getTextContent() + ")", ProgressDialog.LOG);
+													+ "(Original entry " + getFirstNodeWithName(channelInfoNode.getChildNodes(), "IlluminationType").getTextContent() + ")", ProgressDialog.LOG);
 										}
 									}catch(EnumerationException en) {
 										progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
 												+ ", channel" + (channelId+1) 
 												+ ": " 
 												+ "IlluminationType could not be translated to OME xml. Thus IlluminationType in OME xml was set to 'Other'."
-												+ "(Original Illumination type: " + getFirstNodeWithName(channelImageNode.getChildNodes(), "IlluminationType").getTextContent() + ")",
+												+ "(Original Illumination type: " + getFirstNodeWithName(channelInfoNode.getChildNodes(), "IlluminationType").getTextContent() + ")",
 												ProgressDialog.NOTIFICATION);
 										meta.setChannelIlluminationType(IlluminationType.fromString("Other"),
 												imageIndex, channelId);
@@ -1986,7 +1827,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * 	<ExposureTime Unit="s">0.2</ExposureTime>ExposureTime
 									 */
 									{
-										Node tempNode = getFirstNodeWithName(channelImageNode.getChildNodes(), "ExposureTime");
+										Node tempNode = getFirstNodeWithName(channelInfoNode.getChildNodes(), "ExposureTime");
 										for(int p = 0; p < meta.getPlaneCount(imageIndex); p++) {
 											if(meta.getPlaneTheC(imageIndex, p).getNumberValue().intValue()==channelId) {
 												meta.setPlaneExposureTime(FormatTools.createTime(Double.parseDouble(tempNode.getTextContent()), 
@@ -2005,9 +1846,6 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 											}
 										}
 									}
-									
-									
-									
 								}
 									
 								progress.updateBarText("Find out acquisition date from original OPERA index file to OME metadata (OPERA ID " + imageLabelOPERA + ")");
@@ -2174,194 +2012,10 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								
 								/**
 								 * Copying metadata file
-								 */
-								if(loadViaBioformats) {
-									//Copy metadata
-									File newMetadataFile = new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator") + "image.ome.xml");
-									if(newMetadataFile.exists()) {
-										if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata existed already (" + newMetadataFile.getAbsolutePath() + ")", ProgressDialog.LOG);
-									}else {
-										new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator")).mkdirs();									
-										/** 
-										 * Clean meatadata from unneccessary information
-										 */
-										progress.updateBarText("Copying metadata xml...");
-										{
-											Document tempDoc2;
-											try {
-												DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-												DocumentBuilder db = dbf.newDocumentBuilder();
-												
-												//Create a new document and copy it.
-												tempDoc2 = db.newDocument();			
-											    Node originalRoot = metaDoc.getDocumentElement();
-										        Node copiedRoot = tempDoc2.importNode(originalRoot, true);
-										        tempDoc2.appendChild(copiedRoot);
-//											} catch (SAXException | IOException | ParserConfigurationException e) {
-											} catch (ParserConfigurationException e) {
-												String out = "";
-												for (int err = 0; err < e.getStackTrace().length; err++) {
-													out += " \n " + e.getStackTrace()[err].toString();
-												}
-												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not process metadata file " + metadataFilePath 
-														+ "\nError message: " + e.getMessage()
-														+ "\nError localized message: " + e.getLocalizedMessage()
-														+ "\nError cause: " + e.getCause() 
-														+ "\nDetailed message:"
-														+ "\n" + out,
-														ProgressDialog.ERROR);
-												continue;
-											}
-											
-											String wellIDToKeep = "";										
-											if((wellRow+1) < 10) {
-												wellIDToKeep += "0";
-											}
-											wellIDToKeep += String.valueOf(wellRow+1);										
-											if((wellColumn+1) < 10) {
-												wellIDToKeep += "0";
-											}
-											wellIDToKeep += String.valueOf(wellColumn+1);
-											
-											/**
-											 * Removing useless wells from plates node 
-											 */
-											Node tempPlatesNode = tempDoc2.getElementsByTagName("Plates").item(0);
-											Node tempPlateNode;
-											for(int p = 0; p < tempPlatesNode.getChildNodes().getLength(); p++){
-												if(tempPlatesNode.getChildNodes().item(p).getNodeName().equals("Plate")) {
-													tempPlateNode = tempPlatesNode.getChildNodes().item(p);
-													for(int q = tempPlateNode.getChildNodes().getLength()-1; q >= 0; q--){
-														if(!tempPlateNode.getChildNodes().item(q).hasAttributes()) continue;														
-														if(tempPlateNode.getChildNodes().item(q).getAttributes().getNamedItem("id").getNodeValue().equals(wellIDToKeep)) {
-															if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Saved correct well node in Plate Nodes with well id " + tempPlateNode.getChildNodes().item(q).getAttributes().getNamedItem("id").getNodeValue() + ".", ProgressDialog.LOG);
-															progress.updateBarText("Saved correct well node in Plate Nodes with well id " + tempPlateNode.getChildNodes().item(q).getAttributes().getNamedItem("id").getNodeValue() + ".");
-														} else {
-															tempPlateNode.removeChild(tempPlateNode.getChildNodes().item(q));
-														}
-													}
-												}
-											}
-											
-											/**
-											 * Removing useless wells from Wells node
-											 */
-											Node tempWellsNode = tempDoc2.getElementsByTagName("Wells").item(0);
-											Node tempWellNode;
-											String tempImageID;
-											String imageIDBeginningsToKeep = imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"));
-											
-											
-											for(int w = 0; w < tempWellsNode.getChildNodes().getLength(); w++){
-												if(tempWellsNode.getChildNodes().item(w).getNodeName().equals("Well")) {
-													tempWellNode = tempWellsNode.getChildNodes().item(w);
-													for(int i = tempWellNode.getChildNodes().getLength()-1; i >= 0; i--){
-														if(tempWellNode.getChildNodes().item(i).getNodeName().equals("id")) {
-															if(tempWellNode.getChildNodes().item(i).getTextContent().equals(wellIDToKeep)) {
-																if(extendedLogging)	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Saved correct well node in Well nodes with id " + tempWellNode.getChildNodes().item(i).getTextContent() + ".", ProgressDialog.LOG);															
-															}else {
-																tempWellsNode.removeChild(tempWellNode);
-																break;
-															}
-														}
-														
-														if(tempWellNode.getChildNodes().item(i).getNodeName().equals("Image")) {
-															if(!tempWellNode.getChildNodes().item(i).hasAttributes()) continue;
-															tempImageID = tempWellNode.getChildNodes().item(i).getAttributes().getNamedItem("id").getNodeValue();
-															tempImageID = tempImageID.substring(0,tempImageID.lastIndexOf("P"));
-															if(tempImageID.equals(imageIDBeginningsToKeep)) {
-																if(extendedLogging) {
-																	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Kept correct image id in well node: " + tempWellNode.getChildNodes().item(i).getAttributes().getNamedItem("id").getNodeValue() + ".", ProgressDialog.LOG);			
-																}													
-															}else {
-																tempWellNode.removeChild(tempWellNode.getChildNodes().item(i));
-															}
-														}													
-													}												
-												}
-											}
-											System.gc();
-											
-
-											/**
-											 * Removing useless images from image node
-											 */
-											Node tempImagesNode = tempDoc2.getElementsByTagName("Images").item(0);
-											Node tempImageNode;
-											 for(int i = 0; i < tempImagesNode.getChildNodes().getLength(); i++){
-												 if(tempImagesNode.getChildNodes().item(i).getNodeName().equals("Image")) {
-													 tempImageNode = tempImagesNode.getChildNodes().item(i);
-													 for(int i2 = tempImageNode.getChildNodes().getLength()-1; i2 >= 0; i2--){
-														 if(tempImageNode.getChildNodes().item(i2).getNodeName().equals("id")) {
-															tempImageID = tempImageNode.getChildNodes().item(i2).getTextContent();
-															tempImageID = tempImageID.substring(0,tempImageID.lastIndexOf("P"));
-															if(tempImageID.equals(imageIDBeginningsToKeep)) {
-																if(extendedLogging) {
-																	progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Kept correct image id in image nodes: " + tempImageNode.getChildNodes().item(i2).getTextContent() + ".", ProgressDialog.LOG);	
-																}
-															}else {
-																tempImagesNode.removeChild(tempImageNode);
-																break;
-															}
-														 }
-													 }
-												 }
-											 }
-											 
-											/**
-											 *  Save metadata file
-											 */
-											try {
-												source = new DOMSource(tempDoc2);
-												writer = new FileWriter(newMetadataFile);
-												StreamResult result = new StreamResult(writer);
-												
-												transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-												transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "3");
-												transformer.transform(source, result);
-												
-												writer.close();
-												if(extendedLogging) {
-													progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Metadata XML has been modified...", ProgressDialog.LOG);	
-												}
-											} catch (TransformerConfigurationException e) {
-												String out = "";
-												for (int err = 0; err < e.getStackTrace().length; err++) {
-													out += " \n " + e.getStackTrace()[err].toString();
-												}
-												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
-														+ "Error when writing modified xml." 
-														+ "\nError message: " + e.getMessage()
-														+ "\nError localized message: " + e.getLocalizedMessage()
-														+ "\nError cause: " + e.getCause() 
-														+ "\nDetailed message:"
-														+ "\n" + out,
-														ProgressDialog.ERROR);
-												continue;
-											} catch (TransformerException e) {
-												String out = "";
-												for (int err = 0; err < e.getStackTrace().length; err++) {
-													out += " \n " + e.getStackTrace()[err].toString();
-												}
-												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " 
-														+ "Error when writing modified xml." 
-														+ "\nError message: " + e.getMessage()
-														+ "\nError localized message: " + e.getLocalizedMessage()
-														+ "\nError cause: " + e.getCause() 
-														+ "\nDetailed message:"
-														+ "\n" + out,
-														ProgressDialog.ERROR);
-												continue;
-											}
-										}
-										if(extendedLogging)	progress.notifyMessage("Cleaned meta data file (" + metaDataFile + ") as " + newMetadataFile.getAbsolutePath(), ProgressDialog.LOG);
-										progress.updateBarText("Metadata XML has been cleaned...");
-									}
-								}else {
-									FileUtils.copyFile(newTemporaryMetadataFile,
-										new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator") + "image.ome.xml"), 
-										true);
-								}								
+								 */	
+								FileUtils.copyFile(newTemporaryMetadataFile,
+									new File(savingDir + System.getProperty("file.separator") + "metadata" + System.getProperty("file.separator") + "image.ome.xml"), 
+									true);							
 										
 								/**
 								 * Saving modified omexml tif comment into copied image
@@ -2487,7 +2141,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							ProgressDialog.NOTIFICATION);
 				}
 				
-				if(!loadViaBioformats && tempProjectDir != "") {
+				if(tempProjectDir != "") {
 					try {
 						forceDeleteDirectory(new File(tempProjectDir),2);			
 						//TODO Deletion does not work right now on windows... Could not find a solution for it
@@ -2803,6 +2457,54 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	}
 	
 	/**
+	 * Find the channel node
+	 * @param node: The master document node
+	 * @param channelId: The channel id (>=1)
+	 * @return First an channel node with image information for channel with a channelID of @param channelId
+	 */
+	private Node getChannelMasterNodeUsingXPath(NodeList node, String channelId) {
+		NodeList nl = null;
+		String theXpath = "//Entry[@ChannelID='" + channelId + "' and ChannelName]";
+		try {
+			XPathExpression expr = xp.compile(theXpath);
+			nl = (NodeList) expr.evaluate(node, XPathConstants.NODESET);
+			if(nl.getLength() > 1) {
+				progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": WARNING Xpath inquiry for channel " + channelId + " yielded " + nl.getLength() + " node(s)! First node: " 
+						+ "\n" + nl.item(0).getNodeName()
+						+ "\n" + nl.item(0).getNodeValue()
+						+ "\n" + nl.item(0).getTextContent()
+						+ "\n" + getFirstNodeWithName(nl.item(0).getChildNodes(),"id").getTextContent(),
+						ProgressDialog.LOG);			
+			}			
+		} catch (XPathExpressionException e) {
+			String out = "";
+			for (int err = 0; err < e.getStackTrace().length; err++) {
+				out += " \n " + e.getStackTrace()[err].toString();
+			}
+			progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Could not fetch image node with id " + channelId 
+					+ "\nError message: " + e.getMessage()
+					+ "\nError localized message: " + e.getLocalizedMessage()
+					+ "\nError cause: " + e.getCause() 
+					+ "\nDetailed message:"
+					+ "\n" + out,
+					ProgressDialog.ERROR);
+		} catch (Exception e) {
+			String out = "";
+			for (int err = 0; err < e.getStackTrace().length; err++) {
+				out += " \n " + e.getStackTrace()[err].toString();
+			}
+			progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Error during xpath request for channel " + channelId + " and xpath " +  theXpath
+					+ "\nError message: " + e.getMessage()
+					+ "\nError localized message: " + e.getLocalizedMessage()
+					+ "\nError cause: " + e.getCause() 
+					+ "\nDetailed message:"
+					+ "\n" + out,
+					ProgressDialog.ERROR);
+		}
+		return nl.item(0);
+	}
+	
+	/**
 	 * Find the first node with a specific name in a NodeList
 	 * @param imageNodes: The list of image nodes in an OPERA XML Metadata file
 	 * @return First node in the list that has a subnode of type <id> with a value of @param id
@@ -3090,6 +2792,17 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			imagesNode = metaDoc.getElementsByTagName("Images").item(0);
 			wellsNode = metaDoc.getElementsByTagName("Wells").item(0);
 			platesNode = metaDoc.getElementsByTagName("Plates").item(0);
+			channelsNode = metaDoc.getElementsByTagName("Maps").item(0);
+			for(int m = 0; m < channelsNode.getChildNodes().getLength(); m++) {
+				for(int e = 0; e < channelsNode.getChildNodes().item(m).getChildNodes().getLength(); e++) {
+					for(int a = 0; a < channelsNode.getChildNodes().item(m).getChildNodes().item(e).getChildNodes().getLength(); a++) {
+//						if(channelsNode.getChildNodes().item(m).getChildNodes().item(e).getChildNodes().item(a)) {
+							//TODO
+//						}
+					}
+				}
+//				if(this.getFirstNodeWithName(null, tempMsg) channelsNode.getChildNodes().item(m).)
+			}
 			
 		}
 		
@@ -3299,6 +3012,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		srcLoadingLog = "";
 		srcLoadingLogMode = ProgressDialog.LOG;
 		String tempMsg = "";
+		srcMetaXMLVersion = "";
 		
 		// Initialize metadata document
 		{
@@ -3333,6 +3047,13 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			srcWellsNode = srcMetaDoc.getElementsByTagName("Wells").item(0);
 			srcPlatesNode = srcMetaDoc.getElementsByTagName("Plates").item(0);
 			
+			// Detecting the metadata version - implemented variants: 1 or 2
+			srcMetaXMLVersion = srcMetaDoc.getElementsByTagName("EvaluationInputData").item(0).getAttributes().getNamedItem("Version").getNodeValue();
+			if(extendedLogging){
+				tempMsg = "Fetched metadata type: " + srcMetaXMLVersion + ".";
+				srcLoadingLog += "\n" + tempMsg;
+				
+			}
 		}
 		
 		/**
