@@ -147,6 +147,17 @@ Detailed message:
 
 - In the well folders you will find the data ready for your further use in LIMS, Memento, or other software.
 
+
+### Updating the plugin version
+Download the new version's .jar file from the [release page](https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/releases). Make sure FIJI is closed - if still open, close it. Next, locate the FIJI software file / folder on your computer and go on below depending on your OS.
+
+#### Windows
+In Windows or Linux, FIJI is a directory called FIJI.app. Enter this directory and navigate to the "plugins" folder and enter it. Find the old version of the HPA_Convert_OPERA_To_LIMS-OMETIF_JNH-X.X.X-SNAPSHOT.jar file and delete it. Then place the new plugin version in the "plugins" folder. Exit the FIJI.app folder. Start FIJI.
+
+#### Mac
+In Mac OS, FIJI is just a software file (FIJI.app). Right click on the FIJI icon (or hold option and do normal click on it), then select "Show Package Content". A folder will open, which contains the contents of the FIJI.app. Navigate to the "plugins" folder folder and enter it. Find the old version of the HPA_Convert_OPERA_To_LIMS-OMETIF_JNH-X.X.X-SNAPSHOT.jar file and delete it. Then place the new plugin version in the "plugins" folder . Exit the FIJI.app folder. Start FIJI.
+
+
 ---
 
 (c) 2023 J.N. Hansen, Cell Profiling group
