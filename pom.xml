@@ -11,7 +11,7 @@
  
  	<artifactId>HPA_Convert_OPERA_To_LIMS-OMETIF_JNH</artifactId>
  	<groupId>CellProfiling</groupId>
-    <version>0.2.1-SNAPSHOT</version>
+    <version>0.2.2-SNAPSHOT</version>
  
 <!-- Plugin Information -->
     <name>HPA_Convert_OPERA_To_LIMS-OMETIF_JNH</name>

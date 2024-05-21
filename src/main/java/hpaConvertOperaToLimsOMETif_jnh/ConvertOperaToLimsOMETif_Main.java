@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.1
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.2
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: May 17, 2024)
+* Date: September 11, 2023 (This Version: May 21, 2024)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -93,7 +93,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.1";
+	static final String PLUGINVERSION = "0.2.2";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -126,6 +126,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	boolean extendedLogging = false;
 	boolean logInitialFileScreening = false;
 	boolean logWholeOMEXMLComments = false;
+	boolean noWarningsForZ = true;
+	boolean noWarningsForMissingCustomMetadata = true;
 	
 	boolean extendOnly = false;
 	
@@ -169,7 +171,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	String metadataFilePath = "";
 	File metaDataFile = null;
 	Document metaDoc = null;
-	Node imagesNode = null, wellsNode = null, platesNode = null, channelsNode = null;
+	Node imagesNode = null, wellsNode = null, platesNode = null;
 	double zStepSizeInMicronAcrossWholeOPERAFile = -1.0;
 	String loadingLog = "";
 	int loadingLogMode = ProgressDialog.LOG;
@@ -243,6 +245,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		gd.setInsets(0,0,0);	gd.addCheckbox("Log all processing steps extensively", extendedLogging);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Log initial screening original file", logInitialFileScreening);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Log the OME metadata XML before and after extending", logWholeOMEXMLComments);
+		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for resolved z information conflicts", noWarningsForZ);
+		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for missing custom metadata", noWarningsForMissingCustomMetadata);
 		
 		gd.setInsets(10,0,0);	gd.addMessage("Input files", SubHeadingFont);
 		gd.setInsets(0,0,0);	gd.addMessage("A dialog will be shown when you press OK that allows you to list Index.idx.xml files to be processed.", InstructionsFont);
@@ -266,6 +270,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		extendedLogging = gd.getNextBoolean();
 		logInitialFileScreening = gd.getNextBoolean();
 		logWholeOMEXMLComments = gd.getNextBoolean();
+		noWarningsForZ = gd.getNextBoolean();
+		noWarningsForMissingCustomMetadata = gd.getNextBoolean();
 		//read and process variables--------------------------------------------------
 		if (gd.wasCanceled()) return;
 		
@@ -1072,21 +1078,24 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
 										
 										if(!val1Str.equals(val2Str)) {
-											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
-													+ metadataFilePath + " - Z location in OME metadata did not match metadata of image with reference " 
-													+ imageLabelOPERA + "in OPERA Metadata XML. We need to correct the absolute Z position based on OPERA Metadata!"
-													+ " (XML metadata z value: "
-													+ val1
-													+ " OME z value: "
-													+ val2
-													+ ", converted to "
-													+ digitsToCompare
-													+ " were "
-													+ val1Str
-													+ " and "
-													+ val2Str
-													+ ")"
-													, ProgressDialog.LOG);
+											if(!noWarningsForZ) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " - Z location in OME metadata did not match metadata of image with reference " 
+														+ imageLabelOPERA + "in OPERA Metadata XML. We need to correct the absolute Z position based on OPERA Metadata!"
+														+ " (XML metadata z value: "
+														+ val1
+														+ " OME z value: "
+														+ val2
+														+ ", converted to "
+														+ digitsToCompare
+														+ " were "
+														+ val1Str
+														+ " and "
+														+ val2Str
+														+ ")"
+														, ProgressDialog.LOG);
+											}
+											
 											
 											meta.setPlanePositionZ(FormatTools.createLength(FormatTools.createLength(val1,tempUnit).value(UNITS.METER).doubleValue(),
 													UNITS.METER), imageIndex, p);
@@ -1628,9 +1637,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										service.populateOriginalMetadata(meta, "Plane " + (p+1) + "|" + OPERAString + "|OriginalAbsTime" , getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsTime").getTextContent());
 										service.populateOriginalMetadata(meta, "Plane " + (p+1) + "|" + OPERAString + "|OriginalOrientationMatrix" , getFirstNodeWithName(planeImageNode.getChildNodes(), "OrientationMatrix").getTextContent());									
 									}catch(Exception e) {
-										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", plane " + (p+1) + ", " + OPERAString + ":" 
-												+ "WARNING: Storing custom plane metadata (Originalid, URL, AbsTime, OrientationMatrix) failed...",
-												ProgressDialog.ERROR);
+										if(!noWarningsForMissingCustomMetadata) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", plane " + (p+1) + ", " + OPERAString + ":" 
+													+ "WARNING: Storing one or all custom plane metadata information (Originalid, URL, AbsTime, and/or OrientationMatrix) failed...",
+													ProgressDialog.ERROR);
+										}
 									}									
 								}
 								meta.setWellSampleTimepoint(start, plateIndex, wellIndex, wellSampleIndex);
@@ -2791,19 +2802,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 
 			imagesNode = metaDoc.getElementsByTagName("Images").item(0);
 			wellsNode = metaDoc.getElementsByTagName("Wells").item(0);
-			platesNode = metaDoc.getElementsByTagName("Plates").item(0);
-			channelsNode = metaDoc.getElementsByTagName("Maps").item(0);
-			for(int m = 0; m < channelsNode.getChildNodes().getLength(); m++) {
-				for(int e = 0; e < channelsNode.getChildNodes().item(m).getChildNodes().getLength(); e++) {
-					for(int a = 0; a < channelsNode.getChildNodes().item(m).getChildNodes().item(e).getChildNodes().getLength(); a++) {
-//						if(channelsNode.getChildNodes().item(m).getChildNodes().item(e).getChildNodes().item(a)) {
-							//TODO
-//						}
-					}
-				}
-//				if(this.getFirstNodeWithName(null, tempMsg) channelsNode.getChildNodes().item(m).)
-			}
-			
+			platesNode = metaDoc.getElementsByTagName("Plates").item(0);			
 		}
 		
 		/**
