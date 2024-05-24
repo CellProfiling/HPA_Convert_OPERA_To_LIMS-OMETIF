@@ -26,7 +26,7 @@ The output folder contains two folders: <i>Assaylayout</i> and <i>Images</i>. In
 To find out which images belong to which recording, one would need to look up the ids needed in the xml file and find the corresponding files. This is very cumbersome. That is why this software has been developed.
 
 #### Output files by this software after processing the OPERA Phenix folders
-This software automatically reads the master xml file in the OPERA Phenix <i>Images</i> folder and locates the tif files belonging to each recording noted in the xml file. Then this software creates a new folder directory and moves the files there but under more meaningful names and in a more reasonable folder structure. Additionally, this software makes sure that as much metadata as possible is preserved during transfer of images and shaping the new directory. 
+This software automatically reads the master xml file in the OPERA Phenix <i>Images</i> folder and locates the tif files belonging to each recording noted in the xml file. Then this software creates a new folder directory and moves the files there but under more meaningful names and in a more reasonable folder structure. Additionally, this software makes sure that as much metadata as possible is preserved during transfer of images and shaping the new directory.
 
 The user can select one of three different output directory structures, depending on how the user wishes to further use the output directory:
 <p align="center">
@@ -35,8 +35,9 @@ The user can select one of three different output directory structures, dependin
 
 - The first option (<b><i>LIMS style</i></b>) is tailored to upload the processed images to the HPA LIMS. In this option, a folder is created for each field of view and focal plane. This means that a z-stack is burst into individual folders for each z plane and that each z plane becomes an independent image including a metadata xml file.
 - The second option (<b><i>canonical OME tif style</i></b>) is tailored to image analysis software that loads OME tif files. One folder is created for a z-stack in which all channel and plane images from a z-stack are stored together.
-- The third option (<b><i>Memento style</i></b>) is tailored to create a tif folder structure that is compatible to further processing the files with the [TifCs_To_HPA-PNG-JPEG plugin](https://github.com/CellProfiling/TifCs_To_HPA-PNG-JPEG/), which can also scale the intensities and will output JPEG or PNG images suitable for upload to the annotation software [Memento](https://github.com/CellProfiling/memento). 
+- The third option (<b><i>Memento style</i></b>) is tailored to create a tif folder structure that is compatible to further processing the files with the [TifCs_To_HPA-PNG-JPEG plugin](https://github.com/CellProfiling/TifCs_To_HPA-PNG-JPEG/), which can also scale the intensities and will output JPEG or PNG images suitable for upload to the annotation software [Memento](https://github.com/CellProfiling/memento).
 
+##### Example output directory for LIMS upload
 In the following we show how the output directory will look for the first option (<b><i>LIMS style</i></b>):
 - In the output directory, a folder is created for each well. 
 <p align="center">
@@ -48,7 +49,7 @@ In the following we show how the output directory will look for the first option
    <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/bf56016a-8e50-40ff-a6d5-5b6c8bd20ce4" width=350>
 </p>
 
-- In each of these folders, there is an ome.tif file for each channel image and a folder with an xml file containing the metadata relevant for this particular image.
+- In each of these folders, there is an ome.tif file for each channel image and a folder with an xml file containing the metadata relevant for this particular image. Note that beyond the storage of metadata in that folder, there are also all metadata converted and written into OME XML annotations stored in the .ome.tif files itself.
 <p align="center">
    <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/f9c087ae-0c2e-4a06-9008-7a0ee1a93f34" width=500>
 </p>
@@ -56,7 +57,27 @@ In the following we show how the output directory will look for the first option
    <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/052effed-8aa0-40d3-9abf-4bb40904226b" width=500>
 </p>
 
-- Note that beyond the storage of metadata in that folder, there are also all metadata converted and written into OME XML annotations stored in the .ome.tif files itself.
+##### Example output directory for Memento
+<p align="center">
+   <p align="center">
+      The top level folder contains all images in the same well and is named by the well coordinate:
+   </p>
+   <p align="center">
+   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/f136343a-6e4a-41ae-95b5-39b34c53679a" width=400>
+   </p>
+   <p align="center">
+      The middle level folder represents a z-stack, containing subfolders which represent each an individual z plane. The subfolders are named according to the z plane index.
+   </p>
+   <p align="center">
+   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/06ab66f3-ea90-4209-a1a1-aa2954de8511" width=400>
+   </p>
+   <p align="center">
+      The bottom level folder contains all channel images for one z plane and a copy of the xml metadata. Note that beyond the storage of metadata in that folder, there are also all metadata converted and written into OME XML annotations stored in the .ome.tif files itself.
+   </p>
+   <p align="center">
+   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/9bff7db7-ee3a-4c39-bf82-0ff3fd1ff60a" width=400>
+   </p>
+</p>
 
 ### Installation = Getting started
 This is a plugin for the ImageJ distribution FIJI. It requires the installation of Fiji on your computer (see below) to run this software. ImageJ/FIJI does not require any specific hardware, can run on Linux, Windows, and Mac, and can also run on low-performing computers. However, a RAM is required that allows to load one image sequence that you aim to analyze into your RAM at least twice. Our personal experience was that running this plugin in FIJI  requires at least about 2 GB in RAM. For geeks: ImageJ does not require any specific graphics card, the speed of the analysis depends mainly on the processor speed. 
