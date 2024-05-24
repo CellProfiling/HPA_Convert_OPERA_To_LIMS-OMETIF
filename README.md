@@ -1,5 +1,7 @@
-# HPA Convert OPERA To LIMS-OMETIF ImageJ plugin
- An ImageJ plugin to convert image output folders created by the Opera Phenix or Operetta CLS High-Content microscopes (also called "Sonata") to OME Tif format suitable for the HPA LIMS system or for [Memento](https://github.com/CellProfiling/memento) upload. See more instructions under [User instructions](https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/tree/main#user-instructions) below.
+# Converting OPERA-Files to LIMS-compatible, canonical, or Memento-compatible OME-TIF files
+This is the github page for an ImageJ plugin that allows you to convert image output folders created by the Opera Phenix or Operetta CLS High-Content microscopes (also called "Sonata") into OME Tif format suitable for the HPA LIMS system, for OME-TIF-based analysis pipelines, or for [Memento](https://github.com/CellProfiling/memento) upload. Additionally, this software makes sure that metadata are correctly transferred from the OPERA metadata xml file into the OME-TIF Metadata XML information stored in the OME-TIF. 
+ 
+See more instructions under [User instructions](https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/tree/main#user-instructions) below.
  
 Contact jan.hansen@scilifelab.se for help.
 
@@ -26,17 +28,27 @@ To find out which images belong to which recording, one would need to look up th
 #### Output files by this software after processing the OPERA Phenix folders
 This software automatically reads the master xml file in the OPERA Phenix <i>Images</i> folder and locates the tif files belonging to each recording noted in the xml file. Then this software creates a new folder directory and moves the files there but under more meaningful names and in a more reasonable folder structure. Additionally, this software makes sure that as much metadata as possible is preserved during transfer of images and shaping the new directory. 
 
-In the output directory, a folder is created for each well. 
+The user can select one of three different output directory structures, depending on how the user wishes to further use the output directory:
+<p align="center">
+   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/9e815a84-1551-4105-8c95-105aa4bb2a44" width=600>
+</p>
+
+- The first option (<b><i>LIMS style</i></b>) is tailored to upload the processed images to the HPA LIMS. In this option, a folder is created for each field of view and focal plane. This means that a z-stack is burst into individual folders for each z plane and that each z plane becomes an independent image including a metadata xml file.
+- The second option (<b><i>canonical OME tif style</i></b>) is tailored to image analysis software that loads OME tif files. One folder is created for a z-stack in which all channel and plane images from a z-stack are stored together.
+- The third option (<b><i>Memento style</i></b>) is tailored to create a tif folder structure that is compatible to further processing the files with the [TifCs_To_HPA-PNG-JPEG plugin](https://github.com/CellProfiling/TifCs_To_HPA-PNG-JPEG/), which can also scale the intensities and will output JPEG or PNG images suitable for upload to the annotation software [Memento](https://github.com/CellProfiling/memento). 
+
+In the following we show how the output directory will look for the first option (<b><i>LIMS style</i></b>):
+- In the output directory, a folder is created for each well. 
 <p align="center">
    <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/bb033163-9405-4d2a-aff7-efd875919119" width=250>
 </p>
 
-And within each well folder, a folder is created for each field of view or even image plane (depending on the setting, see further done). 
+- And within each well folder, a folder is created for each field of view or even image plane (depending on the setting, see further done). 
 <p align="center">
    <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/bf56016a-8e50-40ff-a6d5-5b6c8bd20ce4" width=350>
 </p>
 
-In each of these folders, there is an ome.tif file for each channel image and a folder with an xml file containing the metadata relevant for this particular image.
+- In each of these folders, there is an ome.tif file for each channel image and a folder with an xml file containing the metadata relevant for this particular image.
 <p align="center">
    <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/f9c087ae-0c2e-4a06-9008-7a0ee1a93f34" width=500>
 </p>
@@ -44,7 +56,7 @@ In each of these folders, there is an ome.tif file for each channel image and a 
    <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/052effed-8aa0-40d3-9abf-4bb40904226b" width=500>
 </p>
 
-Beyond the storage of metadata in that folder, there are also all metadata converted and written into OME XML annotations stored in the .ome.tif files itself.
+- Note that beyond the storage of metadata in that folder, there are also all metadata converted and written into OME XML annotations stored in the .ome.tif files itself.
 
 ### Installation = Getting started
 This is a plugin for the ImageJ distribution FIJI. It requires the installation of Fiji on your computer (see below) to run this software. ImageJ/FIJI does not require any specific hardware, can run on Linux, Windows, and Mac, and can also run on low-performing computers. However, a RAM is required that allows to load one image sequence that you aim to analyze into your RAM at least twice. Our personal experience was that running this plugin in FIJI  requires at least about 2 GB in RAM. For geeks: ImageJ does not require any specific graphics card, the speed of the analysis depends mainly on the processor speed. 
@@ -76,21 +88,29 @@ Next you will receive a settings dialog. Below each setting is explained in more
 
 #### 1. Setting up the settings
 <p align="center">
-   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/22dd7f87-5e3f-4ffe-a6d0-f0595e9b4086" width=800>
+   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/900cf66f-6bfe-478e-b107-ae019761c42c" width=800>
 </p>
 
+<b>NOTE</b>: For standard use of this plugin, there are only two options to be considered / customized: The <i>Filepath to output directory</i> and the <i>Output style</i>!
+
+Further details about individual settings:
 - <b>Plate specifications</b>: These settings are important when generating data for the HPA LIMS. The HPA LIMS reads the coordinates of each acquired image from the OME metadata settings and accordingly, places the acquired image into a certain well in the LIMS. In LIMS these coordinates are based on the whole plate, and the LIMS has an own sheet for which coordinates in X and Y belong to which well on a 96-well plate. By contrast, the OPERA Phenix microscope defines positions in a different way. It described the position of an image relative to each well center. Thus, this software corrects the X and Y coordinates stored in the images metadata to match the LIMS plate schemes. The default settings here are relating to the standard Greiner Sensoplates used in the HPA workflow and do not need to be changed, unless you use a different plate type.
 
 - <b>Image type</b>: Obsolete setting since right now this software only accepts OPERA Phenix folders as input.
+
 - <b>Crop image</b>: The OPERA Phenix records images at an unusual dimension, e.g., of 2160 x 2160 pixels. If you would like to crop the images to a smaller region fitting to your analysis pipeline, you can click this function and select an image width and height value. Accordingly, all processed images will be automatically cropped to that specified size.
+
 - <b>Filepath to output directory</b>: This specifies where this software should save the processed images and create the output file directory.
-- <b>Output style</b>: There is two different output options.
-   - One of the options is tailored to upload the processed images to the HPA LIMS. In this option, a folder is created for each field of view and focal plane. This means that a z-stack is burst into individual folders for each z plane.
-   - The other option is better tailored to all other image analysis or annotation pipelines such as memento. All images from a z-stack are stored in the some output folder.
 
-- <b>Logging settings</b>: Leave this options deactivated unless you want to troubleshoot the translation of metadata. If activated this software will print a lot of text into the LOG window that allows to see how metadata are translated.
+- <b>Output style</b>: There are three different output options.
+   - The first option (<b><i>LIMS style</i></b>) is tailored to upload the processed images to the HPA LIMS. In this option, a folder is created for each field of view and focal plane. This means that a z-stack is burst into individual folders for each z plane and that each z plane becomes an independent image including a metadata xml file.
+   - The second option (<b><i>canonical OME tif style</i></b>) is tailored to image analysis software that loads OME tif files. One folder is created for a z-stack in which all channel and plane images from a z-stack are stored together.
+   - The third option (<b><i>Memento style</i></b>) is tailored to create a tif folder structure that is compatible to further processing the files with the [TifCs_To_HPA-PNG-JPEG plugin](https://github.com/CellProfiling/TifCs_To_HPA-PNG-JPEG/), which can also scale the intensities and will output JPEG or PNG images suitable for upload to the annotation software [Memento](https://github.com/CellProfiling/memento). 
+<p align="center">
+   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/9e815a84-1551-4105-8c95-105aa4bb2a44" width=600>
+</p>
 
-<b>NOTE</b>: For standard use of this plugin, there are only two options to be considered / customized: The <i>Filepath to output directory</i> and the <i>Output style</i>!
+- <b>Logging settings</b>: Leave these options to default settings unless you want to troubleshoot the translation of metadata. If you activate logging options, this software will print a lot of text into the LOG window that allows to see how metadata are translated. This printing however slows down the processing since the printing requires time and memory.
 
 #### 2. Selecting the OPERA folders to be processed
 - After you selected the settings and pressed OK, you will receive a new dialog that allows you to list input xml files to be processed.
@@ -160,4 +180,4 @@ In Mac OS, FIJI is just a software file (FIJI.app). Right click on the FIJI icon
 
 ---
 
-(c) 2023 J.N. Hansen, Cell Profiling group
+(c) 2023-2024 J.N. Hansen, Cell Profiling group
