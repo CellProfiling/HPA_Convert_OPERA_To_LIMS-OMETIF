@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.2
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.3
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: May 21, 2024)
+* Date: September 11, 2023 (This Version: May 24, 2024)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -93,7 +93,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.2";
+	static final String PLUGINVERSION = "0.2.3";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -146,7 +146,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	String outPath = "E:" + System.getProperty("file.separator") + System.getProperty("file.separator") + "OME Out"
 			+ System.getProperty("file.separator");
 	
-	String outputType [] = new String [] {"Separate z planes into individual image folders (LIMS style)","Separate fields of view into individual folders (canonical OME tif style)"};
+	String outputType [] = new String [] {"Separate z planes into individual image folders (LIMS style)","Separate fields of view into individual folders (canonical OME tif style, all z planes in same folder)","Separate fields of view into folders, separate z planes into subfolders (Memento style)"};
 	String selectedOutputType = outputType [0];
 	
 	// -----------------define params for Dialog-----------------
@@ -1461,23 +1461,25 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										}
 										
 										if(meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue() != tempZStepSizeInMicron) {
-											progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
-													+ ", image with ID "
-													+ imageLabelOPERA
-													+ ": OME 'PixelsPhysicalSizeZ' parameter in OME metadata ("
-													+ meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue()
-													+ " "
-													+ UNITS.MICROMETER.getSymbol()
-													+ ") was different compared to what this program read from the OPERA XML metadata ("
-													+ tempZStepSizeInMicron 
-													+ " " 
-													+ UNITS.MICROMETER.getSymbol()
-													+ "). Replacing the 'PixelsPhysicalSizeZ' value in OME metadata with " 
-													+ tempZStepSizeInMicron 
-													+ " " 
-													+ UNITS.MICROMETER.getSymbol()+ ".",
-													ProgressDialog.LOG);	
-											//Since we store the PhysicalSize parameteres generally in meter, convert to meter here, too:
+											if(!noWarningsForZ) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
+														+ ", image with ID "
+														+ imageLabelOPERA
+														+ ": OME 'PixelsPhysicalSizeZ' parameter in OME metadata ("
+														+ meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue()
+														+ " "
+														+ UNITS.MICROMETER.getSymbol()
+														+ ") was different compared to what this program read from the OPERA XML metadata ("
+														+ tempZStepSizeInMicron 
+														+ " " 
+														+ UNITS.MICROMETER.getSymbol()
+														+ "). Replacing the 'PixelsPhysicalSizeZ' value in OME metadata with " 
+														+ tempZStepSizeInMicron 
+														+ " " 
+														+ UNITS.MICROMETER.getSymbol()+ ".",
+														ProgressDialog.LOG);	
+											}											
+											//Since we store the PhysicalSize parameters generally in meter, convert to meter here, too:
 											meta.setPixelsPhysicalSizeZ(new Length(tempZStepSizeInMicron / 1000.0 / 1000.0,UNITS.METER), imageIndex);
 										}else if(!meta.getPixelsPhysicalSizeZ(imageIndex).unit().equals(UNITS.METER)) {
 											meta.setPixelsPhysicalSizeZ(new Length(meta.getPixelsPhysicalSizeZ(imageIndex).value(UNITS.METER),UNITS.METER), imageIndex);
@@ -1932,6 +1934,13 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								}else if(selectedOutputType.equals(outputType [1])) {
 									// More OME Tif compatible output file structures = folder by field of view, all focal planes in one folder
 									// No Z info added to folder name									
+								}else if(selectedOutputType.equals(outputType [2])) {
+									// Memento compatible. Create a subfolder for the z plane.
+									if(imageZ >= 10) {
+										savingDir += System.getProperty("file.separator") + "z" + String.valueOf(imageZ);
+									}else {
+										savingDir += System.getProperty("file.separator") + "z0" + String.valueOf(imageZ);
+									}
 								}
 								
 								File savingDirFile = new File(savingDir);
