@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.3
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.4
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: May 24, 2024)
+* Date: September 11, 2023 (This Version: August 22, 2024)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -93,7 +93,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.3";
+	static final String PLUGINVERSION = "0.2.4";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -128,6 +128,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	boolean logWholeOMEXMLComments = false;
 	boolean noWarningsForZ = true;
 	boolean noWarningsForMissingCustomMetadata = true;
+	boolean noWarningsForDiverseZ = true;
 	
 	boolean extendOnly = false;
 	
@@ -246,6 +247,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		gd.setInsets(5,0,0);	gd.addCheckbox("Log initial screening original file", logInitialFileScreening);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Log the OME metadata XML before and after extending", logWholeOMEXMLComments);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for resolved z information conflicts", noWarningsForZ);
+		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for differences in z-step size across data set", noWarningsForDiverseZ);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for missing custom metadata", noWarningsForMissingCustomMetadata);
 		
 		gd.setInsets(10,0,0);	gd.addMessage("Input files", SubHeadingFont);
@@ -271,6 +273,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		logInitialFileScreening = gd.getNextBoolean();
 		logWholeOMEXMLComments = gd.getNextBoolean();
 		noWarningsForZ = gd.getNextBoolean();
+		noWarningsForDiverseZ = gd.getNextBoolean();
 		noWarningsForMissingCustomMetadata = gd.getNextBoolean();
 		//read and process variables--------------------------------------------------
 		if (gd.wasCanceled()) return;
@@ -1422,20 +1425,22 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 													tempZStepSizeInMicron = observedZValues.get(i);
 												}
 											}
-											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
-													+ imageLabelOPERA
-													+ ": There are images with different Z spacings available in this OPERA output file for all images starting with " 
-													+ imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"))
-													+ ". The following z steps were observed: "
-													+ observedZValues 
-													+ " with the observed frequencies of " 
-													+ observedZValueOccurences 
-													+ "."
-													+ "This program cannot guarantee accurate translation of Z step size information into the OME 'PixelsPhysicalSizeZ' parameter stored in the OME XML Metadata for this file."
-													+ "This program will save the most frequent observed Z step size ("
-													+ tempZStepSizeInMicron
-													+ " micron) as Physical Size Z.",
-													ProgressDialog.NOTIFICATION);
+											if(!noWarningsForDiverseZ) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", image with ID "
+														+ imageLabelOPERA
+														+ ": There are images with different Z spacings available in this OPERA output file for all images starting with " 
+														+ imageLabelOPERA.substring(0,imageLabelOPERA.lastIndexOf("P"))
+														+ ". The following z steps were observed: "
+														+ observedZValues 
+														+ " with the observed frequencies of " 
+														+ observedZValueOccurences 
+														+ "."
+														+ "This program cannot guarantee accurate translation of Z step size information into the OME 'PixelsPhysicalSizeZ' parameter stored in the OME XML Metadata for this file."
+														+ "This program will save the most frequent observed Z step size ("
+														+ tempZStepSizeInMicron
+														+ " micron) as Physical Size Z.",
+														ProgressDialog.NOTIFICATION);
+											}											
 										}else if (observedZValues.size() == 1){
 											tempZStepSizeInMicron = observedZValues.get(0);
 											observedZValues = null;
@@ -2975,20 +2980,22 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 						zStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(i);
 					}
 				}
-				
-				tempMsg = "There are images with different Z spacings available in this OPERA output file: " 
-						+ observedZValues 
-						+ " with the observed frequencies of " 
-						+ observedZValueOccurences 
-						+ "."
-						+ " This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
-						+ " This program will save the most frequent observed Z step size ("
-						+ zStepSizeInMicronAcrossWholeOPERAFile
-						+ " micron) in the OPERA file as a Z calibration value for all converted images.";
-				loadingLog += "\nWARNING: " + tempMsg;
-				if(loadingLogMode != ProgressDialog.ERROR) {
-					loadingLogMode = ProgressDialog.NOTIFICATION;
-				}
+
+				if(!noWarningsForDiverseZ) {
+					tempMsg = "There are images with different Z spacings available in this OPERA output file: " 
+							+ observedZValues 
+							+ " with the observed frequencies of " 
+							+ observedZValueOccurences 
+							+ "."
+							+ " This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
+							+ " This program will save the most frequent observed Z step size ("
+							+ zStepSizeInMicronAcrossWholeOPERAFile
+							+ " micron) in the OPERA file as a Z calibration value for all converted images.";
+					loadingLog += "\nWARNING: " + tempMsg;
+					if(loadingLogMode != ProgressDialog.ERROR) {
+						loadingLogMode = ProgressDialog.NOTIFICATION;
+					}
+				}				
 //				progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": " + tempMsg,
 //						ProgressDialog.NOTIFICATION);
 			}else if(observedZValues.size() == 1){
@@ -3218,19 +3225,21 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					}
 				}
 				
-				tempMsg = "There are images with different Z spacings available in this OPERA output file: " 
-						+ observedZValues 
-						+ " with the observed frequencies of " 
-						+ observedZValueOccurences 
-						+ "."
-						+ " This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
-						+ " This program will save the most frequent observed Z step size ("
-						+ srcZStepSizeInMicronAcrossWholeOPERAFile
-						+ " micron) in the OPERA file as a Z calibration value for all converted images.";
-				srcLoadingLog += "\nWARNING: " + tempMsg;
-				if(srcLoadingLogMode != ProgressDialog.ERROR) {
-					srcLoadingLogMode = ProgressDialog.NOTIFICATION;
-				}
+				if(!noWarningsForDiverseZ) {
+					tempMsg = "There are images with different Z spacings available in this OPERA output file: " 
+							+ observedZValues 
+							+ " with the observed frequencies of " 
+							+ observedZValueOccurences 
+							+ "."
+							+ " This program cannot guarantee accurate translation of Z step size information into the image calibration data stored in the .tif files."
+							+ " This program will save the most frequent observed Z step size ("
+							+ srcZStepSizeInMicronAcrossWholeOPERAFile
+							+ " micron) in the OPERA file as a Z calibration value for all converted images.";
+					srcLoadingLog += "\nWARNING: " + tempMsg;
+					if(srcLoadingLogMode != ProgressDialog.ERROR) {
+						srcLoadingLogMode = ProgressDialog.NOTIFICATION;
+					}
+				}				
 			}else if(observedZValues.size() == 1){
 				srcZStepSizeInMicronAcrossWholeOPERAFile = observedZValues.get(0);
 				observedZValues = null;
