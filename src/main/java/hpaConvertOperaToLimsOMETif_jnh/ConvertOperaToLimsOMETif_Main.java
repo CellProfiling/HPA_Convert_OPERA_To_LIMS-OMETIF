@@ -577,11 +577,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								File createDir = new File(tempProjectDir + System.getProperty("file.separator")
 											+ file + System.getProperty("file.separator"));
 								createDir.mkdir();
-								IJ.log("Created: " + createDir.getAbsolutePath());
+//								IJ.log("Created: " + createDir.getAbsolutePath());
 								
 								String[] allFiles2 = new File(mainDir + System.getProperty("file.separator") + file + System.getProperty("file.separator")).list();
 								for (String file2 : allFiles2) {
-									IJ.log("Eventually copying " + file2);
+//									IJ.log("Eventually copying " + file2);
 									
 									srcFile = new File(mainDir + System.getProperty("file.separator") + file + System.getProperty("file.separator") + file2);
 									if(file2.toUpperCase().equals("IMAGES") && srcFile.isDirectory()) {
@@ -599,7 +599,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 												return;
 											}
 										}										
-										IJ.log("Skipping " + file2);
+//										IJ.log("Skipping " + file2);
 										continue;
 									}								
 																		
@@ -611,7 +611,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										}else {
 											FileUtils.copyFile(srcFile, destFile);
 										}										
-										IJ.log("Copied:	" + srcFile.getAbsolutePath() + "	to	" + destFile.getAbsolutePath());
+//										IJ.log("Copied:	" + srcFile.getAbsolutePath() + "	to	" + destFile.getAbsolutePath());
 									} catch (IOException ioE) {
 										ioE.printStackTrace();
 										return;
@@ -622,7 +622,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								destFile = new File(tempProjectDir + file);								
 								try {
 									FileUtils.copyFile(srcFile, destFile);
-									IJ.log("Copied:	" + srcFile.getAbsolutePath() + "	to	" + destFile.getAbsolutePath());
+//									IJ.log("Copied:	" + srcFile.getAbsolutePath() + "	to	" + destFile.getAbsolutePath());
 								} catch (IOException ioE) {
 									ioE.printStackTrace();
 									return;
@@ -3088,7 +3088,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	        		if(!filesInDir[file].exists()) break;
 	        		System.gc();
 	        		Thread.sleep(5);
-	        		IJ.log("File try " + (i+1));
+//	        		IJ.log("File try " + (i+1));
 	        	}
 	        }
 
@@ -3098,7 +3098,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
     		    if(!theDirectory.exists()) break;
         		System.gc();
         		Thread.sleep(5);
-        		IJ.log("Dir try " + (i+1));
+//        		IJ.log("Dir try " + (i+1));
         	}
 	    }else {
 	    	throw new NullPointerException(); 
