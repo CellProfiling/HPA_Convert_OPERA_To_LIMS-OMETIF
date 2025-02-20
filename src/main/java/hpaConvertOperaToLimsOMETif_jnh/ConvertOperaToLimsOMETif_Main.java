@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.5
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.6
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: February 14, 2025)
+* Date: September 11, 2023 (This Version: February 20, 2025)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -97,7 +97,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.5";
+	static final String PLUGINVERSION = "0.2.6";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -338,7 +338,6 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			
 			/**
 			 * Now open index files and use them to load tasks
-			 * TODO
 			 */
 			for(int task = tasks-1; task >= 0; task--){
 				IJ.showProgress((tasks-task)/tasks);
@@ -561,8 +560,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 						 * > > numbercode.txt
 						 * > > numbercode.xml
 						 * > > dataset.version.txt
-						 */
-								
+						 */	
 						
 						//Copy folders with metadata
 						File mainDir = new File(dir[task].substring(0,dir[task].lastIndexOf(System.getProperty("file.separator") + "hs" + System.getProperty("file.separator"))) 
@@ -1025,12 +1023,15 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					for(int channel = 0; channel < nChannels; channel++) {
 						for(int slice = 0; slice < nSlices; slice++) {
 							String zCode = "Z"+(slice);
-							if(slice < 10 && nSlices > 10) {
+							omeTifFileName = tempDir + outFilename + "_" + zCode +"_C"+(channel)+".ome.tif";	
+							
+							if(!new File(omeTifFileName).exists() && slice < 10 && nSlices > 10) {
 								zCode = "Z0"+(slice);
+								omeTifFileName = tempDir + outFilename + "_" + zCode +"_C"+(channel)+".ome.tif";
 							}
 							
-							omeTifFileName = tempDir + outFilename + "_" + zCode +"_C"+(channel)+".ome.tif";							
-							
+//							IJ.log(omeTifFileName + " (exists? " + new File(omeTifFileName).exists() + " s " + slice + "/" + nSlices);
+														
 							try {
 								/**
 								 * Open the tif file and extract the tif comment (= OME XML String)
