@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.6
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.7
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: February 20, 2025)
+* Date: September 11, 2023 (This Version: February 21, 2025)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -97,7 +97,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.6";
+	static final String PLUGINVERSION = "0.2.7";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -591,7 +591,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										if(srcFile.exists()) {
 											try {
 												FileUtils.copyFile(srcFile, destFile);
-												IJ.log("Copied:	" + srcFile.getAbsolutePath() + "	to	" + destFile.getAbsolutePath());
+//												IJ.log("Copied:	" + srcFile.getAbsolutePath() + "	to	" + destFile.getAbsolutePath());
 											} catch (IOException ioE) {
 												ioE.printStackTrace();
 												return;
@@ -2119,9 +2119,11 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										/*
 										 *  V2 has some special metadata for each channel to be added,
 										 *  e.g., a Flatfield profile which could be populated to original metadata
-										 */											
-										service.populateOriginalMetadata(meta, "Channel " + String.valueOf(channelId+1) + "|FlatfieldProfile", 
-											getFlatfieldProfileUsingXPath(metaDoc.getChildNodes(),String.valueOf(channelId+1)));
+										 */
+										String temp = getFlatfieldProfileUsingXPath(metaDoc.getChildNodes(),String.valueOf(channelId+1));
+										if(!temp.equals("none")) {
+											service.populateOriginalMetadata(meta, "Channel " + String.valueOf(channelId+1) + "|FlatfieldProfile", temp);
+										}
 										
 										String [] originalMetadataTypes = new String [] {"ImageType", "ExcitationPower", "OrientationMatrix", "CropArea"};
 										
@@ -2846,7 +2848,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 						+ "\n" + nl.item(0).getTextContent()
 						+ "\n" + getFirstNodeWithName(nl.item(0).getChildNodes(),"id").getTextContent(),
 						ProgressDialog.LOG);			
-			}			
+			}
+			return nl.item(0).getTextContent();
 		} catch (XPathExpressionException e) {
 			String out = "";
 			for (int err = 0; err < e.getStackTrace().length; err++) {
@@ -2859,6 +2862,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					+ "\nDetailed message:"
 					+ "\n" + out,
 					ProgressDialog.NOTIFICATION);
+			return "none";
 		} catch (Exception e) {
 			String out = "";
 			for (int err = 0; err < e.getStackTrace().length; err++) {
@@ -2871,8 +2875,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					+ "\nDetailed message:"
 					+ "\n" + out,
 					ProgressDialog.NOTIFICATION);
-		}
-		return nl.item(0).getTextContent();
+			return "none";
+		}		
 	}
 	
 	/**
