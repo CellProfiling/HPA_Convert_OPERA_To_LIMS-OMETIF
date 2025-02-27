@@ -1277,7 +1277,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									 * TODO
 									 */									
 									{
-										Node tempNode = getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsPositionX");
+										Node tempNode = getFirstNodeWithName(planeImageNode.getChildNodes(), "PositionX");
 										Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(tempNode);
 										
 										double 	val1 = Double.parseDouble(tempNode.getTextContent()),
@@ -1351,7 +1351,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										}
 									}									
 									{
-										Node tempNode = getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsPositionY");
+										Node tempNode = getFirstNodeWithName(planeImageNode.getChildNodes(), "PositionY");
 										Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(tempNode);
 										
 										double 	val1 = Double.parseDouble(tempNode.getTextContent()),
