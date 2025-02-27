@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.7
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.8
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: February 21, 2025)
+* Date: September 11, 2023 (This Version: February 27, 2025)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -97,7 +97,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.7";
+	static final String PLUGINVERSION = "0.2.8";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -130,7 +130,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	boolean extendedLogging = false;
 	boolean logInitialFileScreening = false;
 	boolean logWholeOMEXMLComments = false;
-	boolean noWarningsForZ = true;
+	boolean noWarningsForXYZConflicts = true;
 	boolean noWarningsForMissingCustomMetadata = true;
 	boolean noWarningsForDiverseZ = true;
 	
@@ -250,7 +250,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		gd.setInsets(0,0,0);	gd.addCheckbox("Log all processing steps extensively", extendedLogging);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Log initial screening original file", logInitialFileScreening);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Log the OME metadata XML before and after extending", logWholeOMEXMLComments);
-		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for resolved z information conflicts", noWarningsForZ);
+		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for resolved x,y,z coordinate conflicts", noWarningsForXYZConflicts);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for differences in z-step size across data set", noWarningsForDiverseZ);
 		gd.setInsets(5,0,0);	gd.addCheckbox("Don't log warnings for missing custom metadata", noWarningsForMissingCustomMetadata);
 		
@@ -276,7 +276,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		extendedLogging = gd.getNextBoolean();
 		logInitialFileScreening = gd.getNextBoolean();
 		logWholeOMEXMLComments = gd.getNextBoolean();
-		noWarningsForZ = gd.getNextBoolean();
+		noWarningsForXYZConflicts = gd.getNextBoolean();
 		noWarningsForDiverseZ = gd.getNextBoolean();
 		noWarningsForMissingCustomMetadata = gd.getNextBoolean();
 		//read and process variables--------------------------------------------------
@@ -1254,25 +1254,217 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								double newXInM, newYInM, newZInM;
 								for(int p = 0; p < meta.getPlaneCount(imageIndex); p++) {
 									/**
+									 * Find the nodes where to read plane information from 
+									 */
+									String OPERAString = seriesName[task];
+									OPERAString += "P" + String.valueOf(meta.getPlaneTheZ(imageIndex, p).getValue()+1);
+									OPERAString += "R" + String.valueOf(meta.getPlaneTheC(imageIndex, p).getValue()+1);
+									
+									Node planeImageNode = null;									
+									try {
+										planeImageNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(), OPERAString);
+									}catch(java.lang.NullPointerException e) {
+										progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", plane " + (p+1) + ":" + "Searching node " 
+												+ OPERAString
+												+ " in OPERA metadata xml failed. Processing of this image skipped. Output data will be missing a lot of metadata information." 
+												+ "", ProgressDialog.ERROR);
+										continue;
+									}
+									
+									/**
+									 * Some new files are not correctly importing position and require fetching from XML file. TODO
+									 * Thus, checking metadata first.
+									 * TODO
+									 */									
+									{
+										Node tempNode = getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsPositionX");
+										Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(tempNode);
+										
+										double 	val1 = Double.parseDouble(tempNode.getTextContent()),
+												val2 = meta.getPlanePositionX(imageIndex, p).value(tempUnit).doubleValue();  
+										
+										int digitsToCompare = getMinNrOfDigits(val1, val2);
+										String val1Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val1);
+										String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
+										
+										if(!val1Str.equals(val2Str)) {
+											if(!noWarningsForXYZConflicts) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " - X location in OME metadata did not match metadata of image with reference " + imageLabelOPERA + "in OPERA Metadata XML. "
+														+ "We need to correct the absolute X position based on OPERA Metadata to be" + val1 + " " + tempUnit.getSymbol() + "!"
+														+ " (XML metadata x value: " + val1 + " " + tempUnit.getSymbol()
+														+ " OME x value: " + val2 + " " + tempUnit.getSymbol() 
+														+ ", converted to " + meta.getPlanePositionX(imageIndex, wellSampleIndex)
+														+ digitsToCompare + " were " + val1Str + " and " + val2Str + ")"
+														, ProgressDialog.LOG);
+											}
+											
+											meta.setPlanePositionX(FormatTools.createLength(FormatTools.createLength(val1,tempUnit).value(UNITS.METER).doubleValue(),
+													UNITS.METER), imageIndex, p);
+											
+											//RECHECKING post writing:
+											val2 = meta.getPlanePositionX(imageIndex, p).value(tempUnit).doubleValue();
+											val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
+											if(!val1Str.equals(val2Str)) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " rechecked post writing X from XML and did still not match:"
+														+ " XML metadata x value: "
+														+ val1
+														+ " OME x value: "
+														+ val2
+														+ ", converted to "
+														+ digitsToCompare
+														+ " were "
+														+ val1Str
+														+ " and "
+														+ val2Str
+														, ProgressDialog.ERROR);
+											}else if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " rechecked post writing X from XML:"
+														+ " XML metadata x value: "
+														+ val1
+														+ " OME x value: "
+														+ val2
+														+ ", converted to "
+														+ digitsToCompare
+														+ " were "
+														+ val1Str
+														+ " and "
+														+ val2Str
+														, ProgressDialog.ERROR);
+											}
+										}else if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - X location in tiff metadata matched in OPERA XML to the image with reference " 
+													+ imageLabelOPERA + "!"
+													+ " XML metadata x value: "
+													+ val1
+													+ " OME x value: "
+													+ val2
+													+ ", converted to "
+													+ digitsToCompare
+													+ " were "
+													+ val1Str
+													+ " and "
+													+ val2Str
+													, ProgressDialog.LOG);
+										}
+									}									
+									{
+										Node tempNode = getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsPositionY");
+										Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(tempNode);
+										
+										double 	val1 = Double.parseDouble(tempNode.getTextContent()),
+												val2 = meta.getPlanePositionY(imageIndex, p).value(tempUnit).doubleValue();  
+										
+										int digitsToCompare = getMinNrOfDigits(val1, val2);
+										String val1Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val1);
+										String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
+										
+										if(!val1Str.equals(val2Str)) {
+											if(!noWarningsForXYZConflicts) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " - Y location in OME metadata did not match metadata of image with reference " + imageLabelOPERA + "in OPERA Metadata XML. "
+														+ "We need to correct the absolute Y position based on OPERA Metadata to be" + val1 + " " + tempUnit.getSymbol() + "!"
+														+ " (XML metadata y value: " + val1 + " " + tempUnit.getSymbol()
+														+ " OME y value: " + val2 + " " + tempUnit.getSymbol() 
+														+ ", converted to " + meta.getPlanePositionY(imageIndex, wellSampleIndex)
+														+ digitsToCompare + " were " + val1Str + " and " + val2Str + ")"
+														, ProgressDialog.LOG);
+											}
+											
+											meta.setPlanePositionX(FormatTools.createLength(FormatTools.createLength(val1,tempUnit).value(UNITS.METER).doubleValue(),
+													UNITS.METER), imageIndex, p);
+											
+											//RECHECKING post writing:
+											val2 = meta.getPlanePositionY(imageIndex, p).value(tempUnit).doubleValue();
+											val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
+											if(!val1Str.equals(val2Str)) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " rechecked post writing Y from XML and did still not match:"
+														+ " XML metadata y value: "
+														+ val1
+														+ " OME y value: "
+														+ val2
+														+ ", converted to "
+														+ digitsToCompare
+														+ " were "
+														+ val1Str
+														+ " and "
+														+ val2Str
+														, ProgressDialog.ERROR);
+											}else if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
+												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
+														+ metadataFilePath + " rechecked post writing Y from XML:"
+														+ " XML metadata y value: "
+														+ val1
+														+ " OME y value: "
+														+ val2
+														+ ", converted to "
+														+ digitsToCompare
+														+ " were "
+														+ val1Str
+														+ " and "
+														+ val2Str
+														, ProgressDialog.ERROR);
+											}
+										}else if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS) {
+											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " + metadataFilePath + " - Y location in tiff metadata matched in OPERA XML to the image with reference " 
+													+ imageLabelOPERA + "!"
+													+ " XML metadata y value: "
+													+ val1
+													+ " OME y value: "
+													+ val2
+													+ ", converted to "
+													+ digitsToCompare
+													+ " were "
+													+ val1Str
+													+ " and "
+													+ val2Str
+													, ProgressDialog.LOG);
+										}
+									}
+									
+									/**
 									 * Calculate and modify X position
 									 * Note: in the original metadata the positions are saved as micron values, but the unit indicates is reference frame and thus wrong. Need to correct that.
 									 * */
-									newXInM = meta.getPlanePositionX(imageIndex, p).value().doubleValue() / 1000.0 / 1000.0;
+									if(!meta.getPlanePositionX(imageIndex, p).unit().getSymbol().equals(UNITS.METER.getSymbol())) {
+										if(meta.getPlanePositionX(imageIndex, p).unit().isConvertible(UNITS.METER)) {
+											newXInM = meta.getPlanePositionX(imageIndex, p).value(UNITS.METER).doubleValue();
+										}else {
+											//The unit is probably reference frame and should be micron in real
+											newXInM = meta.getPlanePositionX(imageIndex, p).value().doubleValue() / 1000.0 / 1000.0;
+										}										
+									}else {
+										newXInM = meta.getPlanePositionX(imageIndex, p).value().doubleValue();
+									}
 									newXInM = wellCenterXInMM / 1000.0 + newXInM;
-
-									if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p + "(Original X coordinate: " + meta.getPlanePositionX(imageIndex, p).value().doubleValue() 
+									
+									if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p + "(Original X coordinate: " 
+											+ meta.getPlanePositionX(imageIndex, p).value().doubleValue() + " " + meta.getPlanePositionX(imageIndex, p).unit().getSymbol()
 											+ " " + meta.getPlanePositionX(imageIndex, p).unit().getSymbol() 
 											+ "; well center: " + wellCenterXInMM + " mm"
 											+ ") will get X coordinate " + newXInM + " m", ProgressDialog.LOG);
 
 									meta.setPlanePositionX(FormatTools.createLength(newXInM,UNITS.METER), imageIndex, p);
-									
+																		
 									/**
 									 * Calculate and modify Y position
 									 * Note: in the original metadata the positions are saved as micron values, but the unit indicates is reference frame and thus wrong. Need to correct that to reach meter.
-									 * */
-									newYInM = meta.getPlanePositionY(imageIndex, p).value().doubleValue() / 1000.0 / 1000.0; 
-									newYInM = wellCenterYInMM / 1000.0 + newYInM;
+									 * */									
+									if(!meta.getPlanePositionY(imageIndex, p).unit().getSymbol().equals(UNITS.METER.getSymbol())) {
+										if(meta.getPlanePositionY(imageIndex, p).unit().isConvertible(UNITS.METER)) {
+											newYInM = meta.getPlanePositionY(imageIndex, p).value(UNITS.METER).doubleValue();
+										}else {
+											//The unit is probably reference frame and should be micron in real
+											newYInM = meta.getPlanePositionY(imageIndex, p).value().doubleValue() / 1000.0 / 1000.0;
+										}										
+									}else {
+										newYInM = meta.getPlanePositionY(imageIndex, p).value().doubleValue();
+									}
+									newYInM = wellCenterXInMM / 1000.0 + newYInM;
+									
 
 									if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p + "(Original Y coordinate: " + meta.getPlanePositionY(imageIndex, p).value().doubleValue() 
 											+ " " + meta.getPlanePositionY(imageIndex, p).unit().getSymbol()  
@@ -1282,36 +1474,28 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									meta.setPlanePositionY(FormatTools.createLength(newYInM,UNITS.METER), imageIndex, p);
 									
 									/**
-									 * Correct unit of Z position
-									 * In the originally generated file the Z position is given in micron, although as unit only "reference frame" is specified!
+									 * Correct unit of Z position if applicable
+									 * In the originally generated file the Z position is often given in micron, although as unit only "reference frame" is specified!
 									 * */
-									newZInM = meta.getPlanePositionZ(imageIndex, p).value().doubleValue() / 1000 / 1000;
-
-									if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p + "(Original Z coordinate: " + meta.getPlanePositionZ(imageIndex, p).value().doubleValue() 
-											+ " " + meta.getPlanePositionZ(imageIndex, p).unit().getSymbol() 
-											+ ") will get Z coordinate " + newZInM + " m", ProgressDialog.LOG);
-
-									meta.setPlanePositionZ(FormatTools.createLength(newZInM,UNITS.METER), imageIndex, p);
+									if(meta.getPlanePositionZ(imageIndex, p).unit().isConvertible(UNITS.METER)) {
+										// Z is correctly defined and nothing needs to be done except eventual conversion to meter
+										if(!meta.getPlanePositionZ(imageIndex, p).unit().getSymbol().equals(UNITS.METER.getSymbol())) {
+											meta.setPlanePositionZ(FormatTools.createLength(meta.getPlanePositionZ(imageIndex, p).value(UNITS.METER).doubleValue(),UNITS.METER), imageIndex, p);
+										}
+									}else {
+										// Z is probably in reference frame corresponding to micron and needs to be converted to meter.
+										newZInM = meta.getPlanePositionZ(imageIndex, p).value().doubleValue() / 1000 / 1000;
+										if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p 
+												+ "(Original Z coordinate: " + meta.getPlanePositionZ(imageIndex, p).value().doubleValue() 
+												+ " " + meta.getPlanePositionZ(imageIndex, p).unit().getSymbol() 
+												+ ") will get Z coordinate " + newZInM + " m", ProgressDialog.LOG);
+										meta.setPlanePositionZ(FormatTools.createLength(newZInM,UNITS.METER), imageIndex, p);
+									}
 									
 									/**
 									 * For security purposes let us try to cross check that with the original metadata file
 									 * */
 									{
-										
-										String OPERAString = seriesName[task];
-										OPERAString += "P" + String.valueOf(meta.getPlaneTheZ(imageIndex, p).getValue()+1);
-										OPERAString += "R" + String.valueOf(meta.getPlaneTheC(imageIndex, p).getValue()+1);
-										
-										Node planeImageNode = null;									
-										try {
-											planeImageNode = getImageNodeWithID_OPERAMETADATA_UsingXPath(imagesNode.getChildNodes(), OPERAString);
-										}catch(java.lang.NullPointerException e) {
-											progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", plane " + (p+1) + ":" + "Searching node " 
-													+ OPERAString
-													+ " in OPERA metadata xml failed. Processing of this image skipped. Output data will be missing a lot of metadata information." 
-													+ "", ProgressDialog.ERROR);
-											continue;
-										}
 										
 										Node tempNode = getFirstNodeWithName(planeImageNode.getChildNodes(), "AbsPositionZ");
 										Unit<Length> tempUnit = getLengthUnitFromNodeAttribute(tempNode);									
@@ -1331,7 +1515,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										String val2Str = String.format("%." + String.valueOf(digitsToCompare) + "g%n", val2);
 										
 										if(!val1Str.equals(val2Str)) {
-											if(!noWarningsForZ) {
+											if(!noWarningsForXYZConflicts) {
 												progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ", Image " 
 														+ metadataFilePath + " - Z location in OME metadata did not match metadata of image with reference " 
 														+ imageLabelOPERA + "in OPERA Metadata XML. We need to correct the absolute Z position based on OPERA Metadata!"
@@ -1716,7 +1900,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 										}
 										
 										if(meta.getPixelsPhysicalSizeZ(imageIndex).value(unitForComparingValues).doubleValue() != tempZStepSizeInMicron) {
-											if(!noWarningsForZ) {
+											if(!noWarningsForXYZConflicts) {
 												progress.notifyMessage("Task " + (task + 1) + "/" + tasks 
 														+ ", image with ID "
 														+ imageLabelOPERA
