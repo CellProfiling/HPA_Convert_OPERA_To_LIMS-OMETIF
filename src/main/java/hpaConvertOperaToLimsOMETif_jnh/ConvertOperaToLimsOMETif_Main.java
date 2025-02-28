@@ -1294,7 +1294,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 														+ "We need to correct the absolute X position based on OPERA Metadata to be" + val1 + " " + tempUnit.getSymbol() + "!"
 														+ " (XML metadata x value: " + val1 + " " + tempUnit.getSymbol()
 														+ " OME x value: " + val2 + " " + tempUnit.getSymbol() 
-														+ ", converted to " + meta.getPlanePositionX(imageIndex, wellSampleIndex)
+														+ ", converted to " + meta.getPlanePositionX(imageIndex, wellSampleIndex).value().doubleValue() 
+														+ " " + meta.getPlanePositionX(imageIndex, wellSampleIndex).unit().getSymbol()
 														+ digitsToCompare + " were " + val1Str + " and " + val2Str + ")"
 														, ProgressDialog.LOG);
 											}
@@ -1368,12 +1369,13 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 														+ "We need to correct the absolute Y position based on OPERA Metadata to be" + val1 + " " + tempUnit.getSymbol() + "!"
 														+ " (XML metadata y value: " + val1 + " " + tempUnit.getSymbol()
 														+ " OME y value: " + val2 + " " + tempUnit.getSymbol() 
-														+ ", converted to " + meta.getPlanePositionY(imageIndex, wellSampleIndex)
+														+ ", converted to " + meta.getPlanePositionY(imageIndex, wellSampleIndex).value().doubleValue()
+														+ " " + meta.getPlanePositionY(imageIndex, wellSampleIndex).unit().getSymbol()
 														+ digitsToCompare + " were " + val1Str + " and " + val2Str + ")"
 														, ProgressDialog.LOG);
 											}
 											
-											meta.setPlanePositionX(FormatTools.createLength(FormatTools.createLength(val1,tempUnit).value(UNITS.METER).doubleValue(),
+											meta.setPlanePositionY(FormatTools.createLength(FormatTools.createLength(val1,tempUnit).value(UNITS.METER).doubleValue(),
 													UNITS.METER), imageIndex, p);
 											
 											//RECHECKING post writing:
@@ -1463,7 +1465,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 									}else {
 										newYInM = meta.getPlanePositionY(imageIndex, p).value().doubleValue();
 									}
-									newYInM = wellCenterXInMM / 1000.0 + newYInM;
+									newYInM = wellCenterYInMM / 1000.0 + newYInM;
 									
 
 									if(extendedLogging || LOGPOSITIONCONVERSIONFORDIAGNOSIS)	progress.notifyMessage("Plane " + p + "(Original Y coordinate: " + meta.getPlanePositionY(imageIndex, p).value().doubleValue() 
