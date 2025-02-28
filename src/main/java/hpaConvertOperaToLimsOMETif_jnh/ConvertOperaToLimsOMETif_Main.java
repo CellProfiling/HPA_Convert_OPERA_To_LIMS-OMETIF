@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.8
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.9
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -97,7 +97,7 @@ import ome.xml.model.enums.MicroscopeType;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.8";
+	static final String PLUGINVERSION = "0.2.9";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -3041,26 +3041,30 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			for (int err = 0; err < e.getStackTrace().length; err++) {
 				out += " \n " + e.getStackTrace()[err].toString();
 			}
-			progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Could not fetch flatfield image node with id " + channelId 
-					+ "\nError message: " + e.getMessage()
-					+ "\nError localized message: " + e.getLocalizedMessage()
-					+ "\nError cause: " + e.getCause() 
-					+ "\nDetailed message:"
-					+ "\n" + out,
-					ProgressDialog.NOTIFICATION);
+			if(!noWarningsForMissingCustomMetadata) {
+				progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Could not fetch flatfield image node with id " + channelId 
+						+ "\nError message: " + e.getMessage()
+						+ "\nError localized message: " + e.getLocalizedMessage()
+						+ "\nError cause: " + e.getCause() 
+						+ "\nDetailed message:"
+						+ "\n" + out,
+						ProgressDialog.NOTIFICATION);
+			}			
 			return "none";
 		} catch (Exception e) {
 			String out = "";
 			for (int err = 0; err < e.getStackTrace().length; err++) {
 				out += " \n " + e.getStackTrace()[err].toString();
 			}
-			progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Error during xpath request for channel " + channelId + " and xpath " +  theXpath
-					+ "\nError message: " + e.getMessage()
-					+ "\nError localized message: " + e.getLocalizedMessage()
-					+ "\nError cause: " + e.getCause() 
-					+ "\nDetailed message:"
-					+ "\n" + out,
-					ProgressDialog.NOTIFICATION);
+			if(!noWarningsForMissingCustomMetadata) {
+				progress.notifyMessage("Task " + (0 + 1) + "/" + tasks + ": Error during xpath request for channel " + channelId + " and xpath " +  theXpath
+						+ "\nError message: " + e.getMessage()
+						+ "\nError localized message: " + e.getLocalizedMessage()
+						+ "\nError cause: " + e.getCause() 
+						+ "\nDetailed message:"
+						+ "\n" + out,
+						ProgressDialog.NOTIFICATION);
+			}			
 			return "none";
 		}		
 	}
