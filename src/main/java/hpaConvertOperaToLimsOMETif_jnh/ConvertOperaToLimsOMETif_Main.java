@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.9
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.10
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: February 27, 2025)
+* Date: September 11, 2023 (This Version: May 28, 2025)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -94,10 +94,16 @@ import ome.xml.model.enums.EnumerationException;
 import ome.xml.model.enums.IlluminationType;
 import ome.xml.model.enums.MicroscopeType;
 
+// For validating the xml file
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.charset.StandardCharsets;
+
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.9";
+	static final String PLUGINVERSION = "0.2.10";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -3327,7 +3333,28 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			try {
 				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 				DocumentBuilder db = dbf.newDocumentBuilder();
-				metaDoc = db.parse(metaDataFile);
+				
+				//Check if closingTag appears twice, and if so, remove all behind for loading
+				String xml = new String(Files.readAllBytes(metaDataFile.toPath()), StandardCharsets.UTF_8);
+			    int beforeLength = xml.length();
+				
+			    String closingTag = "</EvaluationInputData>";
+			    int closingTagIndex = xml.indexOf(closingTag);
+			    if (closingTagIndex >= 0) {
+			        xml = xml.substring(0, closingTagIndex + closingTag.length());
+			    }
+			    int afterLength = xml.length();
+			    if(beforeLength != afterLength) {
+			    	tempMsg = "Task " + (task + 1) + "/" + tasks + ": Removed duplicated ending from xml file - removed " 
+			    			+ (beforeLength-afterLength) + " duplicated chars from xml file end.";
+					loadingLog += "\n" + tempMsg;
+					
+					InputStream is = new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8));    			    
+					metaDoc = db.parse(is);					
+			    }else {
+			    	metaDoc = db.parse(metaDataFile);			    	
+			    }	    
+				
 				metaDoc.getDocumentElement().normalize();
 			} catch (SAXException | IOException | ParserConfigurationException e) {
 				String out = "";
@@ -3578,8 +3605,30 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 			try {
 				DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
 				DocumentBuilder db = dbf.newDocumentBuilder();
-				srcMetaDoc = db.parse(srcMetaDataFile);
-				srcMetaDoc.getDocumentElement().normalize();
+				
+				// Remove duplicated ending (related to reported issue #2 in github)
+				String xml = new String(Files.readAllBytes(srcMetaDataFile.toPath()), StandardCharsets.UTF_8);
+				
+				int beforeLength = xml.length();
+				
+			    String closingTag = "</EvaluationInputData>";
+			    int closingTagIndex = xml.indexOf(closingTag);
+			    if (closingTagIndex >= 0) {
+			        xml = xml.substring(0, closingTagIndex + closingTag.length());
+			    }
+			    int afterLength = xml.length();
+			    if(beforeLength != afterLength) {
+			    	tempMsg = "Task " + (task + 1) + "/" + tasks + ": Removed duplicated ending from xml file - removed " 
+			    			+ (beforeLength-afterLength) + " duplicated chars from xml file end.";
+					srcLoadingLog += "\n" + tempMsg;
+					
+					InputStream is = new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8));    			    
+					srcMetaDoc = db.parse(is);					
+			    }else {
+					srcMetaDoc = db.parse(srcMetaDataFile);			    	
+			    }
+			    
+			    srcMetaDoc.getDocumentElement().normalize();
 			} catch (SAXException | IOException | ParserConfigurationException e) {
 				String out = "";
 				for (int err = 0; err < e.getStackTrace().length; err++) {
