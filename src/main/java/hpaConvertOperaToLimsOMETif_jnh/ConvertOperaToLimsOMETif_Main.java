@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.10
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.11
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: May 28, 2025)
+* Date: September 11, 2023 (This Version: July 5, 2025)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -103,7 +103,7 @@ import java.nio.charset.StandardCharsets;
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.10";
+	static final String PLUGINVERSION = "0.2.11";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -370,24 +370,36 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 					String [] nameTemp = new String [name.length+ImageIds.length-1], 
 							dirTemp = new String [name.length+ImageIds.length-1], 
 							seriesNameTemp = new String [name.length+ImageIds.length-1];
-					int [] seriesTemp = new int [nameTemp.length],
-							totSeriesTemp = new int [nameTemp.length]; 
+					int [] seriesTemp = new int [name.length+ImageIds.length-1],
+							totSeriesTemp = new int [name.length+ImageIds.length-1];
+					if(logInitialFileScreening) {
+						IJ.log("LOGGING FILE LISTING PROCESS:");
+					}
 					for(int j = 0; j < task; j++) {
 						nameTemp [j] = name [j]; 
 						dirTemp [j] = dir [j];
 						seriesTemp [j] = series [j];
 						seriesNameTemp [j] = seriesName [j];
 						totSeriesTemp [j] = totSeries [j];
+						if(logInitialFileScreening) {
+							IJ.log("Create task " + j + ": " + seriesTemp [j] + ", " 
+									+ seriesNameTemp [j] + ", "
+									+ totSeriesTemp [j] + ", "
+									+ "(time: " + FullDateFormatter2.format(new Date()) + ")");
+						}
 						
 					}
 					for(int j = 0; j < ImageIds.length; j++) {
 						nameTemp [task+j] = name [task]; 
 						dirTemp [task+j] = dir [task];
 						seriesTemp [task+j] = j;
-						seriesNameTemp [j] = ImageIds[j];
+						seriesNameTemp [task+j] = ImageIds[j];
 						totSeriesTemp [task+j] = ImageIds.length;
 						if(logInitialFileScreening) {
-							IJ.log("Fetched name for series: " + j + " in task " + task + ": " + seriesNameTemp [j] + ", time: " + FullDateFormatter2.format(new Date()));
+							IJ.log("Create task " + (task+j) + ": " + seriesTemp [task+j] + ", " 
+									+ seriesNameTemp [task+j] + ", "
+									+ totSeriesTemp [task+j] + ", "
+									+ "(time: " + FullDateFormatter2.format(new Date()) + ")");
 						}
 					}
 					for(int j = task+1; j < name.length; j++) {
@@ -396,6 +408,12 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 						seriesTemp [j+ImageIds.length-1] = series [j];
 						seriesNameTemp [j+ImageIds.length-1] = seriesName [j];
 						totSeriesTemp [j+ImageIds.length-1] = totSeries [j];
+						if(logInitialFileScreening) {
+							IJ.log("Create task " + (j+ImageIds.length-1) + ": " + seriesTemp [j+ImageIds.length-1] + ", " 
+									+ seriesNameTemp [j+ImageIds.length-1] + ", "
+									+ totSeriesTemp [j+ImageIds.length-1] + ", "
+									+ "(time: " + FullDateFormatter2.format(new Date()) + ")");
+						}
 					}
 					
 					//copy arrays
@@ -415,7 +433,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 						totSeries [j] = totSeriesTemp [j];
 						
 						if(logInitialFileScreening) {
-							IJ.log("Logging loaded tasks here: "  + ", time: " + FullDateFormatter2.format(new Date()));
+							IJ.log("Logging loaded tasks here: New task " + j + " (time: " + FullDateFormatter2.format(new Date()) + ")");
 							IJ.log("ORIGINAL: " + name[task] + ", " + dir [task] + ", " + fullPath[task]);
 							IJ.log("series: " + (series[j]+1) + " of " + totSeries[j] + " with name: " + seriesName[j]);
 						}							
