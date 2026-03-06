@@ -109,7 +109,7 @@ Next you will receive a settings dialog. Below each setting is explained in more
 
 #### 1. Setting up the settings
 <p align="center">
-   <img src="https://github.com/CellProfiling/HPA_Convert_OPERA_To_LIMS-OMETIF/assets/27991883/900cf66f-6bfe-478e-b107-ae019761c42c" width=800>
+   <img src="https://github.com/user-attachments/assets/49b40405-41ac-4d2d-b734-3b3ae798c1bc" width=800>
 </p>
 
 <b>NOTE</b>: For standard use of this plugin, there are only two options to be considered / customized: The <i>Filepath to output directory</i> and the <i>Output style</i>!
@@ -118,6 +118,8 @@ Further details about individual settings:
 - <b>Plate specifications</b>: These settings are important when generating data for the HPA LIMS. The HPA LIMS reads the coordinates of each acquired image from the OME metadata settings and accordingly, places the acquired image into a certain well in the LIMS. In LIMS these coordinates are based on the whole plate, and the LIMS has an own sheet for which coordinates in X and Y belong to which well on a 96-well plate. By contrast, the OPERA Phenix microscope defines positions in a different way. It described the position of an image relative to each well center. Thus, this software corrects the X and Y coordinates stored in the images metadata to match the LIMS plate schemes. The default settings here are relating to the standard Greiner Sensoplates used in the HPA workflow and do not need to be changed, unless you use a different plate type.
 
 - <b>Image type</b>: Obsolete setting since right now this software only accepts OPERA Phenix folders as input.
+
+- <b>Process only selected wells</b>: Useful if you want to process only a specific well of a recording, e.g., to reprocess a well during which processing failes (e.g., due to storage server inavailability), or if you want to split the work on a file and run half a plate on one and the other half on the other computer. If you want to use this option, check the box and specify the wells to process in the text field. If you specify a range it will include all inbetween; E.g., if you select B3-D4, it will include B3, B4, C3, C4, D3, D4.
 
 - <b>Crop image</b>: The OPERA Phenix records images at an unusual dimension, e.g., of 2160 x 2160 pixels. If you would like to crop the images to a smaller region fitting to your analysis pipeline, you can click this function and select an image width and height value. Accordingly, all processed images will be automatically cropped to that specified size.
 
