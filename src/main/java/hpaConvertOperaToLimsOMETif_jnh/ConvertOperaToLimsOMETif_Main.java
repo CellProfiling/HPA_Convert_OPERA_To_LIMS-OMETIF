@@ -1,7 +1,7 @@
 package hpaConvertOperaToLimsOMETif_jnh;
 
 /** ===============================================================================
-* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.11
+* HPA_Convert_OPERA_To_LIMS-OMETIF_JNH.java Version 0.2.12
 * 
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -15,7 +15,7 @@ package hpaConvertOperaToLimsOMETif_jnh;
 * See the GNU General Public License for more details.
 *  
 * Copyright (C) Jan Niklas Hansen
-* Date: September 11, 2023 (This Version: July 5, 2025)
+* Date: September 11, 2023 (This Version: March 05, 2026)
 *   
 * For any questions please feel free to contact me (jan.hansen@scilifelab.se).
 * =============================================================================== */
@@ -32,6 +32,7 @@ import java.nio.ByteBuffer;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.LinkedList;
@@ -100,10 +101,14 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.charset.StandardCharsets;
 
+// Hash sets
+import java.util.HashSet;
+import java.util.Set;
+
 public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	// Name variables
 	static final String PLUGINNAME = "HPA Convert Opera-Tifs to LIMS-OME-Tif";
-	static final String PLUGINVERSION = "0.2.11";
+	static final String PLUGINVERSION = "0.2.12";
 
 	// Fix fonts
 	static final Font SuperHeadingFont = new Font("Sansserif", Font.BOLD, 16);
@@ -141,6 +146,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	boolean noWarningsForDiverseZ = true;
 	
 	boolean extendOnly = false;
+	
+	boolean analyzeSelectedWells = false;
+	String selectedWells = "";
 	
 	boolean cropImage = false;
 	int newImgLength = 2048;
@@ -223,7 +231,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		
 		GenericDialog gd = new GenericDialog(PLUGINNAME + " - set parameters");	
 		//show Dialog-----------------------------------------------------------------
-		gd.setInsets(0,0,0);	gd.addMessage(PLUGINNAME + ", Version " + PLUGINVERSION + ", \u00a9 2022-2025 JN Hansen", SuperHeadingFont);	
+		gd.setInsets(0,0,0);	gd.addMessage(PLUGINNAME + ", Version " + PLUGINVERSION + ", \u00a9 2022-2026 JN Hansen", SuperHeadingFont);	
 		
 
 		gd.setInsets(15,0,0);	gd.addMessage("Notes:", SubHeadingFont);
@@ -243,6 +251,9 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		gd.setInsets(10,0,0);	gd.addMessage("Processing Settings", SubHeadingFont);
 		gd.setInsets(0,0,0);	gd.addChoice("Image type", imageType, selectedImageType);
 		
+		gd.setInsets(10,0,0);	gd.addCheckbox("Process only selected wells", analyzeSelectedWells);
+		gd.setInsets(0, 0, 0);	gd.addStringField("    If selected wells only, specify here (Format: A1,B4,C4-D5)",this.selectedWells,50);
+						
 		gd.setInsets(10,0,0);	gd.addCheckbox("Crop image | new image width and height (px):", cropImage);
 		gd.setInsets(-23, 0, 0);	gd.addNumericField("",newImgLength,0);
 
@@ -275,6 +286,8 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		distanceBetweenNeighboredWellCentersXInMM = gd.getNextNumber();
 		distanceBetweenNeighboredWellCentersYInMM = gd.getNextNumber();
 		selectedImageType = gd.getNextChoice();
+		analyzeSelectedWells = gd.getNextBoolean();
+		selectedWells = gd.getNextString();
 		cropImage = gd.getNextBoolean();
 		newImgLength = (int) Math.round(gd.getNextNumber());
 		outPath = gd.getNextString();
@@ -287,6 +300,14 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 		noWarningsForMissingCustomMetadata = gd.getNextBoolean();
 		//read and process variables--------------------------------------------------
 		if (gd.wasCanceled()) return;
+		
+		if (analyzeSelectedWells && selectedWells != null && !selectedWells.trim().isEmpty()) {
+		    String validationMessage = validateWellSelectionFormat(selectedWells);
+		    if (validationMessage != null) {
+		        IJ.error("Invalid Well Selection", validationMessage);
+		        return;
+		    }
+		}
 		
 		// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 		// -------------------------------LOAD FILES-----------------------------------
@@ -441,12 +462,68 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				}else {
 					seriesName[task] = ImageIds[0];
 				}
-			}
-			
+			}			
+		}
+				
+		if(logInitialFileScreening) {
+			IJ.log("Task list has been finished, starting processing now."  + " (time: " + FullDateFormatter2.format(new Date()) + ")");
 		}
 		
-		if(logInitialFileScreening) {
-			IJ.log("Task list has been finished, starting processing now."  + " Time: " + FullDateFormatter2.format(new Date()));
+		// NEW from version 0.2.12 on: Filter tasks based on selected wells if applicable
+		if (analyzeSelectedWells && selectedWells != null && !selectedWells.trim().isEmpty()) {
+		    if(logInitialFileScreening) {
+		        IJ.log("Filtering tasks based on selected wells: " + selectedWells + " (time: " + FullDateFormatter2.format(new Date()) + ")");
+		    }
+		    
+		    // First, determine which tasks should be kept
+		    ArrayList<Integer> tasksToKeep = new ArrayList<Integer>();
+		    for (int task = 0; task < tasks; task++) {
+		        if (isSeriesInSelectedWells(selectedWells, seriesName[task])) {
+		            tasksToKeep.add(task);
+		            if(logInitialFileScreening) {
+		                IJ.log("  Keeping task " + task + ": " + seriesName[task]);
+		            }
+		        } else {
+		            if(logInitialFileScreening) {
+		                IJ.log("  Skipping task " + task + ": " + seriesName[task] + " (not in selected wells)");
+		            }
+		        }
+		    }
+		    
+		    // Now create filtered arrays
+		    int originalTasks = tasks;
+		    tasks = tasksToKeep.size();
+		    
+		    if (tasks == 0) {
+		        IJ.error("No tasks match the selected wells: " + selectedWells);
+		        return;
+		    }
+		    
+		    String[] nameFiltered = new String[tasks];
+		    String[] seriesNameFiltered = new String[tasks];
+		    String[] dirFiltered = new String[tasks];
+		    int[] seriesFiltered = new int[tasks];
+		    int[] totSeriesFiltered = new int[tasks];
+		    
+		    for (int i = 0; i < tasks; i++) {
+		        int originalIndex = tasksToKeep.get(i);
+		        nameFiltered[i] = name[originalIndex];
+		        seriesNameFiltered[i] = seriesName[originalIndex];
+		        dirFiltered[i] = dir[originalIndex];
+		        seriesFiltered[i] = series[originalIndex];
+		        totSeriesFiltered[i] = totSeries[originalIndex];
+		    }
+		    
+		    // Replace original arrays with filtered ones
+		    name = nameFiltered;
+		    seriesName = seriesNameFiltered;
+		    dir = dirFiltered;
+		    series = seriesFiltered;
+		    totSeries = totSeriesFiltered;
+		    
+		    if(logInitialFileScreening) {
+		    	IJ.log("Filtered " + originalTasks + " tasks down to " + tasks + " tasks based on selected wells.");
+		    }
 		}
 		
 		// add progressDialog
@@ -2628,15 +2705,38 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 							}
 						}
 					}
+					
+					//Clean Up
+					factory = null;
+					service = null;
+					meta = null;
+					tp = null;
+				}
+				
+				//Clean Up
+				bfOptions = null;
+				System.gc();
+				try {
+					Thread.sleep(100); // Give OS time to release file links
+				} catch (InterruptedException e) {
+					String out = "";
+					for (int err = 0; err < e.getStackTrace().length; err++) {
+						out += " \n " + e.getStackTrace()[err].toString();
+					}
+					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Sleeping problem:" 
+							+ "\nError message: " + e.getMessage()
+							+ "\nError localized message: " + e.getLocalizedMessage()
+							+ "\nError cause: " + e.getCause() 
+							+ "\nDetailed message:"
+							+ "\n" + out,
+							ProgressDialog.LOG);
 				}
 				
 				/**
 				 * Add repository to the to delete list
 				 */
 				try {
-					forceDeleteDirectory(new File(tempDir),0);			
-					//TODO Deletion does not work right now on windows... Could not find a solution for it
-					//TODO Try deleting also other temp folder!
+					deleteDirectory(new File(tempDir));
 				} catch (IOException e) {
 					deleteManually = true;
 					String out = "";
@@ -2678,22 +2778,22 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				
 				if(tempProjectDir != "") {
 					try {
-						forceDeleteDirectory(new File(tempProjectDir),0);			
-						//TODO Deletion does not work right now on windows... Could not find a solution for it
-						//TODO Try deleting also other temp folder!
+						deleteDirectory(new File(tempProjectDir));
 					} catch (IOException e) {
 						deleteManually = true;
-						String out = "";
-						for (int err = 0; err < e.getStackTrace().length; err++) {
-							out += " \n " + e.getStackTrace()[err].toString();
+						if(extendedLogging) {
+							String out = "";
+							for (int err = 0; err < e.getStackTrace().length; err++) {
+								out += " \n " + e.getStackTrace()[err].toString();
+							}
+							progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not delete temporary folder " + tempDir + ", please delete manually!" 
+									+ "\nError message: " + e.getMessage()
+									+ "\nError localized message: " + e.getLocalizedMessage()
+									+ "\nError cause: " + e.getCause() 
+									+ "\nDetailed message:"
+									+ "\n" + out,
+									ProgressDialog.NOTIFICATION);
 						}
-						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not delete temporary folder " + tempDir + ", please delete manually!" 
-								+ "\nError message: " + e.getMessage()
-								+ "\nError localized message: " + e.getLocalizedMessage()
-								+ "\nError cause: " + e.getCause() 
-								+ "\nDetailed message:"
-								+ "\n" + out,
-								ProgressDialog.NOTIFICATION);
 					} catch (NullPointerException e) {
 						String out = "";
 						for (int err = 0; err < e.getStackTrace().length; err++) {
@@ -2707,6 +2807,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								+ "\n" + out,
 								ProgressDialog.NOTIFICATION);
 					} catch (InterruptedException e) {
+						deleteManually = true;
 						String out = "";
 						for (int err = 0; err < e.getStackTrace().length; err++) {
 							out += " \n " + e.getStackTrace()[err].toString();
@@ -2717,7 +2818,7 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 								+ "\nError cause: " + e.getCause() 
 								+ "\nDetailed message:"
 								+ "\n" + out,
-								ProgressDialog.NOTIFICATION);
+								ProgressDialog.NOTIFICATION);	
 					}
 				}
 				
@@ -2739,46 +2840,51 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 				progress.updateBarText("Trying to delete temp files (" + String.valueOf(1+task) + " of " + String.valueOf(tasks) + ")");
 				String tempDir = outPath + System.getProperty("file.separator") + "temp_" + task + "" + System.getProperty("file.separator");
 				try {
-					forceDeleteDirectory(new File(tempDir),1);
+					deleteDirectory(new File(tempDir));
 				} catch (IOException e) {
 					deleteManually = true;
-					String out = "";
-					for (int err = 0; err < e.getStackTrace().length; err++) {
-						out += " \n " + e.getStackTrace()[err].toString();
-					}
-					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not delete temporary folder " + tempDir + ", please delete manually!" 
-							+ "\nError message: " + e.getMessage()
-							+ "\nError localized message: " + e.getLocalizedMessage()
-							+ "\nError cause: " + e.getCause() 
-							+ "\nDetailed message:"
-							+ "\n" + out,
-							ProgressDialog.NOTIFICATION);
+					if(extendedLogging) {
+						String out = "";
+						for (int err = 0; err < e.getStackTrace().length; err++) {
+							out += " \n " + e.getStackTrace()[err].toString();
+						}
+						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not delete temporary folder " + tempDir + ", please delete manually!" 
+								+ "\nError message: " + e.getMessage()
+								+ "\nError localized message: " + e.getLocalizedMessage()
+								+ "\nError cause: " + e.getCause() 
+								+ "\nDetailed message:"
+								+ "\n" + out,
+								ProgressDialog.NOTIFICATION);
+					}					
 				} catch (NullPointerException e) {
-					deleteManually = true;
-					String out = "";
-					for (int err = 0; err < e.getStackTrace().length; err++) {
-						out += " \n " + e.getStackTrace()[err].toString();
+					if(extendedLogging) {
+						String out = "";
+						for (int err = 0; err < e.getStackTrace().length; err++) {
+							out += " \n " + e.getStackTrace()[err].toString();
+						}
+						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not delete temporary folder " + tempDir + " since it does not exist!" 
+								+ "\nError message: " + e.getMessage()
+								+ "\nError localized message: " + e.getLocalizedMessage()
+								+ "\nError cause: " + e.getCause() 
+								+ "\nDetailed message:"
+								+ "\n" + out,
+								ProgressDialog.NOTIFICATION);
 					}
-					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Could not delete temporary folder " + tempDir + " since it does not exist!" 
-							+ "\nError message: " + e.getMessage()
-							+ "\nError localized message: " + e.getLocalizedMessage()
-							+ "\nError cause: " + e.getCause() 
-							+ "\nDetailed message:"
-							+ "\n" + out,
-							ProgressDialog.NOTIFICATION);
 				} catch (InterruptedException e) {
 					deleteManually = true;
-					String out = "";
-					for (int err = 0; err < e.getStackTrace().length; err++) {
-						out += " \n " + e.getStackTrace()[err].toString();
+					if(extendedLogging) {
+						String out = "";
+						for (int err = 0; err < e.getStackTrace().length; err++) {
+							out += " \n " + e.getStackTrace()[err].toString();
+						}
+						progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Interrupted exception when deleting " + tempDir + "!" 
+								+ "\nError message: " + e.getMessage()
+								+ "\nError localized message: " + e.getLocalizedMessage()
+								+ "\nError cause: " + e.getCause() 
+								+ "\nDetailed message:"
+								+ "\n" + out,
+								ProgressDialog.NOTIFICATION);						
 					}
-					progress.notifyMessage("Task " + (task + 1) + "/" + tasks + ": Interrupted exception when deleting " + tempDir + "!" 
-							+ "\nError message: " + e.getMessage()
-							+ "\nError localized message: " + e.getLocalizedMessage()
-							+ "\nError cause: " + e.getCause() 
-							+ "\nDetailed message:"
-							+ "\n" + out,
-							ProgressDialog.NOTIFICATION);
 				}
 			}
 			
@@ -3287,41 +3393,31 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	}
 	
 	/**
-	 * Force delete a directory file by file, ignoring streams on the directory
+	 * Delete a directory file by file
 	 * @param theDirectory to the directory
 	 * @throws IOException 
 	 * @throws InterruptedException 
 	 */
-	private static void forceDeleteDirectory(File theDirectory, int retries) throws IOException, NullPointerException, InterruptedException {
-		if (theDirectory.exists()){
-	        File[] filesInDir = theDirectory.listFiles();
-	        for (int file = 0; file < filesInDir.length; file++){
-	        	for(int i = 0; i < retries+1; i++){
-	        		if(filesInDir[file].isDirectory()) {
-		                forceDeleteDirectory(filesInDir[file], retries);
-		            }else{
-//		            	FileDeleteStrategy.FORCE.delete(filesInDir[file]);
-		            	FileUtils.forceDelete(filesInDir[file]);
-		            	if(!filesInDir[file].exists()) break;
-		            }
-	        		if(!filesInDir[file].exists()) break;
-	        		System.gc();
-	        		Thread.sleep(5);
-//	        		IJ.log("File try " + (i+1));
-	        	}
-	        }
-
-	        for(int i = 0; i < retries; i++){
-//			    FileDeleteStrategy.FORCE.delete(theDirectory);
-    		    FileUtils.forceDelete(theDirectory);
-    		    if(!theDirectory.exists()) break;
-        		System.gc();
-        		Thread.sleep(5);
-//        		IJ.log("Dir try " + (i+1));
-        	}
-	    }else {
-	    	throw new NullPointerException(); 
+	private static void deleteDirectory (File theDirectory) throws IOException, NullPointerException, InterruptedException {
+		if (!theDirectory.exists()) {
+	        throw new NullPointerException("Directory does not exist: " + theDirectory);
 	    }
+		
+	    File[] filesInDir = theDirectory.listFiles();
+	    if (filesInDir != null) {
+	        for (File file : filesInDir) {
+	            if (file.isDirectory()) {
+	                deleteDirectory(file); // Recursive call for subdirectories
+	            } else {
+	                file.setWritable(true);
+	                Files.delete(file.toPath());
+	            }
+	        }
+	    }
+	    
+	    // Delete the directory itself
+	    theDirectory.setWritable(true);
+	    Files.delete(theDirectory.toPath());		
 	}
 	
 	private static int getMinNrOfDigits(double val1, double val2) {
@@ -3920,6 +4016,183 @@ public class ConvertOperaToLimsOMETif_Main implements PlugIn {
 	    }
 	    byte[] bytePixels = byteBuffer.array();	    
 	    return bytePixels;	    
+	}
+	
+
+	/*
+	 * Functions to interpret well codes given by user
+	 */
+	public boolean isSeriesInSelectedWells(String selectedWells, String seriesName) {
+	    if (selectedWells == null || selectedWells.trim().isEmpty()) {
+	        return true; // If no selection specified, include all
+	    }
+	    
+	    // Extract well position from series name (e.g., "0203" -> "B3")
+	    String wellPosition = extractWellFromSeriesName(seriesName);
+	    if (wellPosition == null) {
+	        return false;
+	    }
+	    
+	    // Parse selected wells string and check if current well is included
+	    Set<String> selectedWellsSet = parseSelectedWells(selectedWells);
+	    return selectedWellsSet.contains(wellPosition);
+	}
+	private String extractWellFromSeriesName(String seriesName) {
+	    if (seriesName == null || seriesName.length() < 4) {
+	        return null;
+	    }	    
+	    try {
+	        // Extract first 4 digits
+	        String code = seriesName.substring(0, 4);
+	        int rowNum = Integer.parseInt(code.substring(0, 2));
+	        int colNum = Integer.parseInt(code.substring(2, 4));
+	        
+	        // Convert to well format (e.g., 02,03 -> B3)
+	        char rowLetter = (char)('A' + rowNum - 1);
+	        return rowLetter + String.valueOf(colNum);	        
+	    } catch (NumberFormatException e) {
+	        return null;
+	    }
+	}
+	private Set<String> parseSelectedWells(String selectedWells) {
+	    Set<String> wellsSet = new HashSet<>();	    
+	    
+	    // Split by commas
+	    String[] parts = selectedWells.split(",");	   
+	    
+	    for (String part : parts) {
+	        part = part.trim().toUpperCase();	        
+	        if (part.contains("-")) {
+	            // Handle range (e.g., "B3-D4")
+	            String[] rangeParts = part.split("-");
+	            if (rangeParts.length == 2) {
+	                addWellRange(wellsSet, rangeParts[0].trim(), rangeParts[1].trim());
+	            }
+	        } else {
+	            // Handle single well (e.g., "A12")
+	            wellsSet.add(part);
+	        }
+	    }	    
+	    return wellsSet;
+	}
+	private void addWellRange(Set<String> wellsSet, String startWell, String endWell) {
+	    // Parse start well (e.g., "B3")
+	    char startRow = startWell.charAt(0);
+	    int startCol = Integer.parseInt(startWell.substring(1));
+	    
+	    // Parse end well (e.g., "D4")
+	    char endRow = endWell.charAt(0);
+	    int endCol = Integer.parseInt(endWell.substring(1));
+	    
+	    // Add all wells in the range
+	    for (char row = startRow; row <= endRow; row++) {
+	        for (int col = startCol; col <= endCol; col++) {
+	            wellsSet.add(row + String.valueOf(col));
+	        }
+	    }
+	}
+	
+	/**
+	 * Validates the well selection format and checks for invalid well positions
+	 * @param selectedWells the well selection string (e.g., "A1,B3-D4")
+	 * @return null if valid, error message string if invalid
+	 */
+	private String validateWellSelectionFormat(String selectedWells) {
+	    if (selectedWells == null || selectedWells.trim().isEmpty()) {
+	        return null; // Empty is valid (means all wells)
+	    }
+	    
+	    try {
+	        String[] parts = selectedWells.split(",");
+	        
+	        for (String part : parts) {
+	            part = part.trim().toUpperCase();
+	            
+	            if (part.isEmpty()) {
+	                return "Empty well specification found. Please check your input:\n" + selectedWells;
+	            }
+	            
+	            if (part.contains("-")) {
+	                // Handle range (e.g., "B3-D4")
+	                String[] rangeParts = part.split("-");
+	                if (rangeParts.length != 2) {
+	                    return "Invalid range format: '" + part + "'\nExpected format like 'B3-D4'";
+	                }
+	                
+	                String startWell = rangeParts[0].trim();
+	                String endWell = rangeParts[1].trim();
+	                
+	                // Validate start well
+	                String startError = validateSingleWell(startWell);
+	                if (startError != null) {
+	                    return "In range '" + part + "': " + startError;
+	                }
+	                
+	                // Validate end well
+	                String endError = validateSingleWell(endWell);
+	                if (endError != null) {
+	                    return "In range '" + part + "': " + endError;
+	                }
+	                
+	                // Check if range is valid (start before end)
+	                char startRow = startWell.charAt(0);
+	                int startCol = Integer.parseInt(startWell.substring(1));
+	                char endRow = endWell.charAt(0);
+	                int endCol = Integer.parseInt(endWell.substring(1));
+	                
+	                if (startRow > endRow) {
+	                    return "Invalid range '" + part + "': Start row (" + startRow + ") is after end row (" + endRow + ")";
+	                }
+	                if (startRow == endRow && startCol > endCol) {
+	                    return "Invalid range '" + part + "': Start column (" + startCol + ") is after end column (" + endCol + ")";
+	                }
+	                
+	            } else {
+	                // Handle single well (e.g., "A12")
+	                String error = validateSingleWell(part);
+	                if (error != null) {
+	                    return error;
+	                }
+	            }
+	        }
+	        
+	        return null; // All validation passed
+	        
+	    } catch (Exception e) {
+	        return "Error parsing well selection: " + e.getMessage() + 
+	               "\nExpected format examples: 'A1', 'A1,B2', 'A1-C3', 'A1,B3-D4'";
+	    }
+	}
+
+	/**
+	 * Validates a single well position
+	 * @param well the well position (e.g., "A1", "B12")
+	 * @return null if valid, error message if invalid
+	 */
+	private String validateSingleWell(String well) {
+	    if (well.length() < 2) {
+	        return "Well '" + well + "' is too short. Expected format like 'A1' or 'B12'";
+	    }
+	    
+	    char row = well.charAt(0);
+	    if (row < 'A' || row > 'Z') {
+	        return "Well '" + well + "' has invalid row '" + row + "'. Row must be A-Z";
+	    }
+	    
+	    String colStr = well.substring(1);
+	    try {
+	        int col = Integer.parseInt(colStr);
+	        if (col < 1) {
+	            return "Well '" + well + "' has invalid column '" + col + "'. Column must be >= 1";
+	        }
+	        if (col > 99) {
+	            return "Well '" + well + "' has invalid column '" + col + "'. Column must be <= 99 (is this realistic?)";
+	        }
+	    } catch (NumberFormatException e) {
+	        return "Well '" + well + "' has invalid column '" + colStr + "'. Column must be a number";
+	    }
+	    
+	    return null; // Valid
 	}
 	
 }// end main class
